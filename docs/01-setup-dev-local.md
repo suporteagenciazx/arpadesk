@@ -1,0 +1,92 @@
+# 01 — Setup de desenvolvimento local
+
+Guia para rodar o Arpadesk no Windows pela primeira vez.
+
+## Pré-requisitos
+
+| Ferramenta | Versão mínima | Observação |
+|------------|---------------|------------|
+| Docker Desktop | recente | WSL2 habilitado no Windows |
+| Git | qualquer | clone do repositório |
+| Node.js | 20+ | opcional se rodar frontend fora do Docker |
+| Python | 3.11+ | opcional se rodar backend fora do Docker |
+
+## Primeiro run (Docker — recomendado)
+
+Na raiz do projeto (`c:\xampp\htdocs\arpadesk`):
+
+```powershell
+# 1. Copiar variáveis de ambiente
+copy .env.example .env
+
+# 2. Subir stack de desenvolvimento
+docker compose -f docker-compose.dev.yml up --build
+```
+
+Aguarde os containers `postgres`, `backend` e `frontend` ficarem **healthy/running**.
+
+## URLs locais
+
+| Serviço | URL |
+|---------|-----|
+| Frontend | http://localhost:5173 |
+| API | http://localhost:8000 |
+| Swagger (dev) | http://localhost:8000/docs |
+| Health check | http://localhost:8000/api/health |
+| PostgreSQL | localhost:5432 (user/pass no `.env`) |
+
+## Checklist primeiro run
+
+- [ ] Docker Desktop está rodando
+- [ ] Arquivo `.env` existe (copiado de `.env.example`)
+- [ ] `docker compose -f docker-compose.dev.yml up --build` sem erro
+- [ ] http://localhost:5173 mostra página "Arpadesk OK"
+- [ ] http://localhost:8000/api/health retorna `{"status":"ok",...}`
+- [ ] http://localhost:8000/docs abre o Swagger
+
+Teste rápido no PowerShell:
+
+```powershell
+curl http://localhost:8000/api/health
+```
+
+## Rodar só o banco (backend/frontend no host)
+
+Útil para debug com breakpoints:
+
+```powershell
+docker compose -f docker-compose.dev.yml up -d postgres
+```
+
+Backend (terminal 1):
+
+```powershell
+cd backend
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Frontend (terminal 2):
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+## Credenciais seed (desenvolvimento)
+
+Definidas no `.env` — **nunca use em produção**:
+
+| Variável | Default dev |
+|----------|-------------|
+| `SEEDED_ADMIN_EMAIL` | admin@arpadesk.local |
+| `SEEDED_ADMIN_PASSWORD` | Admin@123 |
+
+> O seed do admin será implementado na Fase 0 do MVP. No scaffold atual só o health check está ativo.
+
+## Próximos passos
+
+- Comandos do dia a dia: [02-docker-local.md](./02-docker-local.md)
+- Variáveis de ambiente: [05-variaveis-ambiente.md](./05-variaveis-ambiente.md)
+- O que construir: [PLANO-MVP.md](./PLANO-MVP.md)
