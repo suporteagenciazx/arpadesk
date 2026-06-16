@@ -133,7 +133,7 @@ DOMAIN=arpadesk-staging.seudominio.com.br
 POSTGRES_USER=arpadesk
 POSTGRES_PASSWORD=COLE_SENHA_FORTE
 POSTGRES_DB=arpadesk_staging
-DATABASE_URL=postgresql+asyncpg://arpadesk:COLE_SENHA_FORTE@postgres:5432/arpadesk_staging
+DATABASE_URL=postgresql+psycopg2://arpadesk:COLE_SENHA_FORTE@postgres:5432/arpadesk_staging
 
 JWT_SECRET_KEY=COLE_OPENSSL_RAND_HEX_32
 JWT_EXPIRES_MINUTES=480

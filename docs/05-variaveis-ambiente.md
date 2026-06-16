@@ -22,7 +22,7 @@ Referência das variáveis usadas pelo Arpadesk. Copie `.env.example` para `.env
 | `POSTGRES_USER` | sim | `arpadesk` | Usuário do banco |
 | `POSTGRES_PASSWORD` | sim | `devpass` | Senha — **forte em prod** |
 | `POSTGRES_DB` | sim | `arpadesk_dev` | Nome do database |
-| `DATABASE_URL` | sim | ver `.env.example` | URL async SQLAlchemy (`postgresql+asyncpg://...`) |
+| `DATABASE_URL` | sim | ver `.env.example` | URL SQLAlchemy (`postgresql+psycopg2://...`) |
 
 **Local:** host `postgres` (nome do serviço Docker).  
 **VPS:** mesma URL com senha forte; Postgres sem porta exposta.
@@ -86,7 +86,7 @@ DOMAIN=localhost
 POSTGRES_USER=arpadesk
 POSTGRES_PASSWORD=devpass
 POSTGRES_DB=arpadesk_dev
-DATABASE_URL=postgresql+asyncpg://arpadesk:devpass@postgres:5432/arpadesk_dev
+DATABASE_URL=postgresql+psycopg2://arpadesk:devpass@postgres:5432/arpadesk_dev
 
 JWT_SECRET_KEY=dev-only-change-in-production
 JWT_EXPIRES_MINUTES=480
@@ -114,7 +114,7 @@ DOMAIN=arpadesk.seudominio.com.br
 POSTGRES_USER=arpadesk
 POSTGRES_PASSWORD=<openssl rand -base64 24>
 POSTGRES_DB=arpadesk_prod
-DATABASE_URL=postgresql+asyncpg://arpadesk:<SENHA>@postgres:5432/arpadesk_prod
+DATABASE_URL=postgresql+psycopg2://arpadesk:<SENHA>@postgres:5432/arpadesk_prod
 
 JWT_SECRET_KEY=<openssl rand -hex 32>
 VAULT_MASTER_KEY=<openssl rand -base64 32>

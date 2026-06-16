@@ -44,9 +44,10 @@ Aguarde os containers `postgres`, `backend` e `frontend` ficarem **healthy/runni
 - [x] Docker Desktop está rodando
 - [ ] Arquivo `.env` existe (copiado de `.env.example`)
 - [ ] `docker compose -f docker-compose.dev.yml up --build` sem erro
-- [ ] [http://localhost:5173](http://localhost:5173) mostra página "Arpadesk OK"
+- [ ] [http://localhost:5173](http://localhost:5173) abre a tela de login
 - [ ] [http://localhost:8000/api/health](http://localhost:8000/api/health) retorna `{"status":"ok",...}`
-- [ ] [http://localhost:8000/docs](http://localhost:8000/docs) abre o Swagger
+- [ ] Login com admin seed funciona (ver credenciais abaixo)
+- [ ] [http://localhost:8000/docs](http://localhost:8000/docs) abre o Swagger (somente em `development`)
 
 Teste rápido no PowerShell:
 
@@ -85,11 +86,17 @@ Definidas no `.env` — **nunca use em produção**:
 
 | Variável                | Default dev                                         |
 | ----------------------- | --------------------------------------------------- |
-| `SEEDED_ADMIN_EMAIL`    | [admin@arpadesk.local](mailto:admin@arpadesk.local) |
-| `SEEDED_ADMIN_PASSWORD` | Admin@123                                           |
+| `SEEDED_ADMIN_EMAIL`    | `admin@arpadesk.local` |
+| `SEEDED_ADMIN_PASSWORD` | `Admin@123`            |
 
+Usuários demo criados no seed (desenvolvimento):
 
-> O seed do admin será implementado na Fase 0 do MVP. No scaffold atual só o health check está ativo.
+| Perfil     | Email                         | Senha            |
+| ---------- | ----------------------------- | ---------------- |
+| Financeiro | `financeiro@arpadesk.local`   | `Financeiro@123` |
+| Contador   | `contador@arpadesk.local`     | `Contador@123`   |
+
+> O seed roda automaticamente no primeiro start do backend (admin + projeto AGENCIA + usuários demo).
 
 ## Próximos passos
 

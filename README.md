@@ -1,6 +1,6 @@
 # Arpadesk
 
-Sistema web de gestão financeira orientada a projetos (vendas, comissões, despesas, pagamentos) e cofre de ativos sensíveis (Suporte). Stack: **React + FastAPI + PostgreSQL + Docker**.
+Sistema web de gestão financeira orientada a projetos (vendas, comissões, despesas, pagamentos, relatórios) e cofre de ativos sensíveis (Suporte). Stack: **React + FastAPI + PostgreSQL + Docker**.
 
 ## Pré-requisitos
 
@@ -30,7 +30,17 @@ docker compose -f docker-compose.dev.yml up --build
 | [docs/01-setup-dev-local.md](./docs/01-setup-dev-local.md) | Primeiro run no Windows |
 | [docs/02-docker-local.md](./docs/02-docker-local.md) | Comandos Docker do dia a dia |
 | [docs/03-deploy-vps.md](./docs/03-deploy-vps.md) | Deploy VPS (SSH + Portainer) |
+| [docs/05-variaveis-ambiente.md](./docs/05-variaveis-ambiente.md) | Referência de variáveis `.env` |
 | [docs/PLANO-MVP.md](./docs/PLANO-MVP.md) | Plano de produto e fases |
+
+## Deploy VPS
+
+```bash
+cp .env.example .env   # ajustar DOMAIN, secrets e DATABASE_URL (host postgres)
+docker compose --env-file .env up -d --build
+```
+
+Guia completo: [docs/03-deploy-vps.md](./docs/03-deploy-vps.md)
 
 ## Estrutura
 
