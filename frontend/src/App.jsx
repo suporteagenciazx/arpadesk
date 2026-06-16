@@ -1,47 +1,60 @@
-import { useEffect, useState } from "react";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { AuthProvider } from "./context/AuthContext";
+import { ProjectProvider } from "./context/ProjectContext";
+import { ThemeProvider } from "./context/ThemeContext";
+import ProtectedRoute from "./components/ProtectedRoute";
+import Layout from "./components/Layout";
+import Login from "./pages/Login";
+import FinanceProjects from "./pages/finance/FinanceProjects";
+import FinanceLayout from "./pages/finance/FinanceLayout";
+import Vendas from "./pages/finance/Vendas";
+import Despesas from "./pages/finance/Despesas";
+import Comissoes from "./pages/finance/Comissoes";
+import Pagamentos from "./pages/finance/Pagamentos";
+import Relatorio from "./pages/finance/Relatorio";
+import Suporte from "./pages/Suporte";
+import Usuarios from "./pages/config/Usuarios";
+import Telegram from "./pages/config/Telegram";
 
 export default function App() {
-  const [health, setHealth] = useState(null);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    fetch(`${API_URL}/api/health`)
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-      })
-      .then(setHealth)
-      .catch((err) => setError(err.message));
-  }, []);
-
   return (
-    <div className="layout">
-      <aside className="sidebar">
-        <h1>Arpadesk</h1>
-        <nav>
-          <span className="nav-item active">Início</span>
-          <span className="nav-item muted">Financeiro</span>
-          <span className="nav-item muted">Suporte</span>
-          <span className="nav-item muted">Config</span>
-        </nav>
-      </aside>
-      <main className="content">
-        <h2>Arpadesk OK</h2>
-        <p className="subtitle">Scaffold inicial — stack React + FastAPI + PostgreSQL</p>
-        <div className="card">
-          <h3>API Health</h3>
-          {error && <p className="error">Erro: {error}</p>}
-          {health && (
-            <pre>{JSON.stringify(health, null, 2)}</pre>
-          )}
-          {!health && !error && <p>Carregando...</p>}
-        </div>
-        <p className="hint">
-          Swagger: <a href={`${API_URL}/docs`} target="_blank" rel="noreferrer">{API_URL}/docs</a>
-        </p>
-      </main>
-    </div>
+    <ThemeProvider>
+      <AuthProvider>
+        <ProjectProvider>
+          <BrowserRouter
+            future={{
+              v7_startTransition: true,
+              v7_relativeSplatPath: true,
+            }}
+          >
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route
+                element={
+                  <ProtectedRoute>
+                    <Layout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<Navigate to="/financeiro" replace />} />
+                <Route path="/financeiro" element={<FinanceProjects />} />
+                <Route path="/suporte" element={<Suporte />} />
+                <Route path="/config/usuarios" element={<Usuarios />} />
+                <Route path="/config/telegram" element={<Telegram />} />
+                <Route path="/p/:projectId/financeiro" element={<FinanceLayout />}>
+                  <Route index element={<Navigate to="vendas" replace />} />
+                  <Route path="vendas" element={<Vendas />} />
+                  <Route path="despesas" element={<Despesas />} />
+                  <Route path="comissoes" element={<Comissoes />} />
+                  <Route path="pagamentos" element={<Pagamentos />} />
+                  <Route path="relatorio" element={<Relatorio />} />
+                </Route>
+              </Route>
+              <Route path="*" element={<Navigate to="/financeiro" replace />} />
+            </Routes>
+          </BrowserRouter>
+        </ProjectProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

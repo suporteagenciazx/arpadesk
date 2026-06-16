@@ -4,12 +4,14 @@ Guia para rodar o Arpadesk no Windows pela primeira vez.
 
 ## Pré-requisitos
 
-| Ferramenta | Versão mínima | Observação |
-|------------|---------------|------------|
-| Docker Desktop | recente | WSL2 habilitado no Windows |
-| Git | qualquer | clone do repositório |
-| Node.js | 20+ | opcional se rodar frontend fora do Docker |
-| Python | 3.11+ | opcional se rodar backend fora do Docker |
+
+| Ferramenta     | Versão mínima | Observação                                |
+| -------------- | ------------- | ----------------------------------------- |
+| Docker Desktop | recente       | WSL2 habilitado no Windows                |
+| Git            | qualquer      | clone do repositório                      |
+| Node.js        | 20+           | opcional se rodar frontend fora do Docker |
+| Python         | 3.11+         | opcional se rodar backend fora do Docker  |
+
 
 ## Primeiro run (Docker — recomendado)
 
@@ -27,22 +29,24 @@ Aguarde os containers `postgres`, `backend` e `frontend` ficarem **healthy/runni
 
 ## URLs locais
 
-| Serviço | URL |
-|---------|-----|
-| Frontend | http://localhost:5173 |
-| API | http://localhost:8000 |
-| Swagger (dev) | http://localhost:8000/docs |
-| Health check | http://localhost:8000/api/health |
-| PostgreSQL | localhost:5432 (user/pass no `.env`) |
+
+| Serviço       | URL                                                                  |
+| ------------- | -------------------------------------------------------------------- |
+| Frontend      | [http://localhost:5173](http://localhost:5173)                       |
+| API           | [http://localhost:8000](http://localhost:8000)                       |
+| Swagger (dev) | [http://localhost:8000/docs](http://localhost:8000/docs)             |
+| Health check  | [http://localhost:8000/api/health](http://localhost:8000/api/health) |
+| PostgreSQL    | localhost:5432 (user/pass no `.env`)                                 |
+
 
 ## Checklist primeiro run
 
-- [ ] Docker Desktop está rodando
+- [x] Docker Desktop está rodando
 - [ ] Arquivo `.env` existe (copiado de `.env.example`)
 - [ ] `docker compose -f docker-compose.dev.yml up --build` sem erro
-- [ ] http://localhost:5173 mostra página "Arpadesk OK"
-- [ ] http://localhost:8000/api/health retorna `{"status":"ok",...}`
-- [ ] http://localhost:8000/docs abre o Swagger
+- [ ] [http://localhost:5173](http://localhost:5173) mostra página "Arpadesk OK"
+- [ ] [http://localhost:8000/api/health](http://localhost:8000/api/health) retorna `{"status":"ok",...}`
+- [ ] [http://localhost:8000/docs](http://localhost:8000/docs) abre o Swagger
 
 Teste rápido no PowerShell:
 
@@ -78,10 +82,12 @@ npm run dev
 
 Definidas no `.env` — **nunca use em produção**:
 
-| Variável | Default dev |
-|----------|-------------|
-| `SEEDED_ADMIN_EMAIL` | admin@arpadesk.local |
-| `SEEDED_ADMIN_PASSWORD` | Admin@123 |
+
+| Variável                | Default dev                                         |
+| ----------------------- | --------------------------------------------------- |
+| `SEEDED_ADMIN_EMAIL`    | [admin@arpadesk.local](mailto:admin@arpadesk.local) |
+| `SEEDED_ADMIN_PASSWORD` | Admin@123                                           |
+
 
 > O seed do admin será implementado na Fase 0 do MVP. No scaffold atual só o health check está ativo.
 
@@ -90,3 +96,4 @@ Definidas no `.env` — **nunca use em produção**:
 - Comandos do dia a dia: [02-docker-local.md](./02-docker-local.md)
 - Variáveis de ambiente: [05-variaveis-ambiente.md](./05-variaveis-ambiente.md)
 - O que construir: [PLANO-MVP.md](./PLANO-MVP.md)
+
