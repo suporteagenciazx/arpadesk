@@ -13,7 +13,7 @@ import {
   fmtMoney,
   fmtDate,
 } from "../../lib/constants";
-import { formatMemberLabel } from "../../lib/helpers";
+import { formatSaleMemberLabel } from "../../lib/helpers";
 import { maskCnpj, maskPhone, maskMoney, parseMoney, isValidCnpjMasked, isValidPhoneMasked } from "../../lib/masks";
 
 const emptyForm = {
@@ -453,7 +453,7 @@ export default function Vendas() {
                 .filter((m) => m.user_level !== "admin")
                 .map((m) => (
                   <option key={m.user_id} value={m.user_id}>
-                    {formatMemberLabel(m)}
+                    {formatSaleMemberLabel(m)}
                   </option>
                 ))}
             </select>
