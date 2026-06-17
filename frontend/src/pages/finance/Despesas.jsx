@@ -7,6 +7,7 @@ import PeriodHint from "../../components/PeriodHint";
 import FinanceTabGuard from "../../components/FinanceTabGuard";
 import { ExpenseIcon } from "../../components/Icons";
 import { useDateFilter } from "../../hooks/useDateFilter";
+import { todayLocalIso } from "../../lib/calendar";
 import { EXPENSE_TYPES, fmtMoney, fmtDate } from "../../lib/constants";
 import { maskMoney, parseMoney } from "../../lib/masks";
 
@@ -14,7 +15,7 @@ const emptyForm = {
   expense_type: "DIVULGACAO",
   amount: "",
   notes: "",
-  expense_date: new Date().toISOString().slice(0, 10),
+  expense_date: todayLocalIso(),
 };
 
 export default function Despesas() {
@@ -49,7 +50,7 @@ export default function Despesas() {
     setEditing(null);
     setForm({
       ...emptyForm,
-      expense_date: new Date().toISOString().slice(0, 10),
+      expense_date: todayLocalIso(),
     });
     setError("");
     setModalOpen(true);
@@ -84,7 +85,7 @@ export default function Despesas() {
       setEditing(null);
       setForm({
         ...emptyForm,
-        expense_date: new Date().toISOString().slice(0, 10),
+        expense_date: todayLocalIso(),
       });
       load();
     } catch (err) {
@@ -112,13 +113,19 @@ export default function Despesas() {
           periodEnd={filter.periodEnd}
           onPeriodStartChange={filter.setPeriodStart}
           onPeriodEndChange={filter.setPeriodEnd}
-          onApplyCustom={(e) => {
-            e.preventDefault();
-            load(filter.periodStart, filter.periodEnd);
-          }}
-        />
+        onApplyCustom={(e) => {
+          e.preventDefault();
+          load(filter.periodStart, filter.periodEnd);
+        }}
+        showWeekNav={filter.showWeekNav}
+        weekInfo={filter.weekInfo}
+        onWeekShift={(delta) => {
+          const r = filter.shiftWeek(delta);
+          load(r.start, r.end);
+        }}
+      />
 
-        <PeriodHint start={filter.periodStart} end={filter.periodEnd} preset={filter.preset} />
+        <PeriodHint start={filter.periodStart} end={filter.periodEnd} preset={filter.preset} weekInfo={filter.weekInfo} />
 
         <div className="toolbar">
           <button type="button" className="btn btn-primary" onClick={openCreate}>

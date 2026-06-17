@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.dependencies import get_current_user, require_admin, require_admin_finance, user_has_project_access
+from app.permissions import FINE_SETTINGS_LEVELS
 from app.models import (
     DEFAULT_DOC_TYPES,
     DEFAULT_EXPENSE_TYPES,
@@ -25,6 +26,7 @@ from app.schemas import (
     ProjectSettingsPatch,
 )
 from app.services.finance import compute_summary, compute_report, slugify
+from app.services.cache import cached_json, cache_delete_prefix
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -205,7 +207,7 @@ def upsert_payment_settings(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if user.level not in (UserLevel.admin, UserLevel.financeiro):
+    if user.level not in FINE_SETTINGS_LEVELS:
         raise HTTPException(403, "Sem permissão")
     if not user_has_project_access(db, user, project_id):
         raise HTTPException(403, "Sem acesso")
@@ -234,7 +236,8 @@ def project_summary(
 
     ps = dt.fromisoformat(period_start) if period_start else None
     pe = dt.fromisoformat(period_end) if period_end else None
-    return compute_summary(db, project_id, ps, pe)
+    key = f"summary:{project_id}:{ps}:{pe}"
+    return cached_json(key, lambda: compute_summary(db, project_id, ps, pe))
 
 
 @router.get("/{project_id}/report")
@@ -255,4 +258,5 @@ def project_report(
         today = dt.today()
         ps = today.replace(day=1)
         pe = today
-    return compute_report(db, project_id, ps, pe)
+    key = f"report:{project_id}:{ps}:{pe}"
+    return cached_json(key, lambda: compute_report(db, project_id, ps, pe))

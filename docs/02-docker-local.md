@@ -7,6 +7,8 @@ Referência de comandos para o ambiente de desenvolvimento com `docker-compose.d
 | Serviço | Imagem / build | Porta | Função |
 |---------|----------------|-------|--------|
 | `postgres` | postgres:16-alpine | 5432 | Banco de dados |
+| `minio` | minio/minio | 9000, 9001 | Storage S3 (comprovantes de venda) |
+| `redis` | redis:7-alpine | 6379 | Cache de resumos/comissões/relatório |
 | `backend` | docker/backend.Dockerfile.dev | 8000 | FastAPI com `--reload` |
 | `frontend` | docker/frontend.Dockerfile.dev | 5173 | Vite dev server (HMR) |
 
@@ -43,7 +45,20 @@ docker compose -f docker-compose.dev.yml down -v
 | Volume | Conteúdo |
 |--------|----------|
 | `pg_dev_data` | Dados PostgreSQL |
-| `./data/uploads` | Uploads de teste (comprovantes) |
+| `minio_dev_data` | Comprovantes (bucket `arpadesk`) |
+| `redis_dev_data` | Cache Redis |
+| `./data/uploads` | Legado (não usado para CP) |
+
+## Comprovantes (MinIO)
+
+- Variáveis `S3_*` no `.env` — ver [05-variaveis-ambiente.md](./05-variaveis-ambiente.md).
+- Console: [http://localhost:9001](http://localhost:9001) — credenciais `S3_ACCESS_KEY` / `S3_SECRET_KEY`.
+- Download na UI passa pela API (`/attachment/download`), não abre URL interna `minio:9000`.
+
+## Calendário / filtros de período
+
+- Semana operacional (seg–sex) e preset **Atual**: [06-calendario-periodos.md](./06-calendario-periodos.md).
+- Validar após mudanças: `node frontend/src/lib/calendar.validate.mjs`
 
 ## Troubleshooting
 

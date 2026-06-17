@@ -6,7 +6,7 @@ import PeriodHint from "../../components/PeriodHint";
 import FinanceTabGuard from "../../components/FinanceTabGuard";
 import { UserIcon } from "../../components/Icons";
 import { useDateFilter } from "../../hooks/useDateFilter";
-import { fmtMoney, USER_LEVELS } from "../../lib/constants";
+import { fmtMoney } from "../../lib/constants";
 
 export default function Comissoes() {
   const { projectId } = useParams();
@@ -24,8 +24,6 @@ export default function Comissoes() {
     load();
   }, [projectId]);
 
-  const levelLabel = (l) => USER_LEVELS.find((x) => x.value === l)?.label || l;
-
   return (
     <FinanceTabGuard tab="comissoes">
       <div>
@@ -40,9 +38,15 @@ export default function Comissoes() {
             e.preventDefault();
             load(filter.periodStart, filter.periodEnd);
           }}
+          showWeekNav={filter.showWeekNav}
+          weekInfo={filter.weekInfo}
+          onWeekShift={(delta) => {
+            const r = filter.shiftWeek(delta);
+            load(r.start, r.end);
+          }}
         />
 
-        <PeriodHint start={filter.periodStart} end={filter.periodEnd} preset={filter.preset} />
+        <PeriodHint start={filter.periodStart} end={filter.periodEnd} preset={filter.preset} weekInfo={filter.weekInfo} />
 
         {!summary ? (
           <p>Carregando...</p>
@@ -77,7 +81,6 @@ export default function Comissoes() {
                 <thead>
                   <tr>
                     <th>Colaborador</th>
-                    <th>Nível</th>
                     <th>%</th>
                     <th>Base</th>
                     <th>Comissão</th>
@@ -94,7 +97,6 @@ export default function Comissoes() {
                           {c.user_name}
                         </span>
                       </td>
-                      <td>{levelLabel(c.user_level)}</td>
                       <td>{c.commission_percent}%</td>
                       <td>{fmtMoney(c.total_sales_base)}</td>
                       <td>{fmtMoney(c.commission_amount)}</td>
@@ -102,7 +104,7 @@ export default function Comissoes() {
                   ))}
                   {summary.commissions.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="muted center">
+                      <td colSpan={4} className="muted center">
                         Nenhum colaborador com comissão no período.
                       </td>
                     </tr>

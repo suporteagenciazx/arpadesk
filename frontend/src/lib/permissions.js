@@ -16,3 +16,15 @@ export function visibleFinanceTabs(level) {
 export function defaultFinanceTab(level) {
   return "vendas";
 }
+
+export function canManageDefaultFine(level) {
+  return ["admin", "financeiro", "contador", "agente"].includes(level);
+}
+
+export function canCashClosing(level) {
+  return ["admin", "financeiro", "contador", "agente"].includes(level);
+}
+
+export function isPeriodLockedForUser(level) {
+  return level === "financeiro" || level === "contador" || level === "agente";
+}

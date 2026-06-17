@@ -19,11 +19,15 @@ Guia para subir o Arpadesk em staging e produção com Docker. Cobre deploy via 
 | **CORS_ORIGINS** | `http://localhost:5173` | `https://seudominio.com.br` (sem `*`) |
 | **VITE_API_URL / build** | `http://localhost:8000` | `https://seudominio.com.br` (sem `/api`) |
 | **Postgres** | porta 5432 exposta | **sem porta pública** — rede interna Docker |
-| **Volumes** | `pg_dev_data`, `./data/uploads` | `pg_data`, `uploads_data`, `caddy_data` |
+| **Volumes** | `pg_dev_data`, `minio_dev_data`, `redis_dev_data` | `pg_data`, `minio_data`, `redis_data`, `uploads_data`, `caddy_data` |
+| **MinIO** | API 9000 + console 9001 | só rede interna `appnet` |
+| **Redis** | porta 6379 (dev) | só rede interna — cache 120s |
 | **Frontend** | Vite dev (HMR) | `npm run build` + Nginx estático |
 | **Backend** | `--reload`, debug | uvicorn produção, sem reload |
 | **ENVIRONMENT** | `development` | `production` |
 | **Swagger `/docs`** | liberado | desabilitado ou restrito por IP |
+| **Fuso horário VPS** | N/A | `America/Sao_Paulo` (datas do backend) |
+| **Semana operacional** | Fuso do navegador | Seg–sex civil; ver [06-calendario-periodos.md](./06-calendario-periodos.md) |
 | **Firewall** | N/A | UFW: 22, 80, 443, 9443 |
 | **Backups** | opcional | cron `pg_dump` + volume uploads |
 | **Pastas na VPS** | — | `/srv/arpadesk-staging` e `/srv/arpadesk-prod` separados |
@@ -227,7 +231,7 @@ curl -s https://arpadesk-staging.seudominio.com.br/api/health
 | Staging | `/srv/arpadesk-staging` | `develop` | `arpadesk_staging` |
 | Produção | `/srv/arpadesk-prod` | `main` | `arpadesk_prod` |
 
-Valide fechamento semanal, kanban e uploads em staging por 1–2 semanas antes de promover para produção.
+Valide fechamento semanal, kanban, uploads e **filtro de período (semana seg–sex)** em staging por 1–2 semanas antes de promover para produção.
 
 ---
 

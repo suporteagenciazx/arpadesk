@@ -10,6 +10,9 @@ const api = axios.create({
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("arpadesk_token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  if (config.data instanceof FormData) {
+    delete config.headers["Content-Type"];
+  }
   return config;
 });
 
@@ -27,5 +30,16 @@ api.interceptors.response.use(
     return Promise.reject(err);
   }
 );
+
+/** Upload multipart sem forçar Content-Type JSON do axios */
+export function postMultipart(url, formData, config = {}) {
+  return api.post(url, formData, {
+    ...config,
+    headers: {
+      ...(config.headers || {}),
+      "Content-Type": undefined,
+    },
+  });
+}
 
 export default api;

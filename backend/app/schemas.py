@@ -118,11 +118,33 @@ class PaymentSettingsIn(BaseModel):
     crypto_network: Optional[str] = None
     crypto_qr: Optional[str] = None
     default_fine_percent: float = 0
+    default_fine_amount: float = 0
+    default_fine_notes: Optional[str] = None
 
 
 class PaymentSettingsOut(PaymentSettingsIn):
     id: int
     project_id: int
+
+    model_config = {"from_attributes": True}
+
+
+class PeriodFineIn(BaseModel):
+    participant_id: int
+    period_start: date
+    period_end: date
+    amount: float = Field(ge=0)
+    notes: Optional[str] = None
+
+
+class PeriodFineOut(BaseModel):
+    id: int
+    participant_id: int
+    participant_name: str
+    period_start: date
+    period_end: date
+    amount: float
+    notes: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -171,7 +193,12 @@ class SaleOut(BaseModel):
     status: SaleStatus
     sale_date: date
     cp_attachment_url: Optional[str] = None
+    has_cp_attachment: bool = False
     created_at: datetime
+
+
+class SaleAttachmentUrlOut(BaseModel):
+    url: str
 
     model_config = {"from_attributes": True}
 
@@ -209,6 +236,7 @@ class PaymentCreate(BaseModel):
     adjustment_amount: float = 0
     apply_fine: bool = False
     fine_percent: Optional[float] = None
+    fine_amount: Optional[float] = None
     period_start: Optional[date] = None
     period_end: Optional[date] = None
     notes: Optional[str] = None
@@ -251,6 +279,7 @@ class TelegramNotificationSettingsIn(BaseModel):
     send_mode: Optional[str] = None
     template: Optional[str] = None
     enabled: Optional[bool] = None
+    attach_cp: Optional[bool] = None
 
 
 class TelegramSettingsIn(BaseModel):
@@ -276,9 +305,12 @@ class TelegramSettingsOut(BaseModel):
     registration_send_mode: str = "group"
     registration_template: str = ""
     notify_on_registration: bool = False
+    attach_cp_on_registration: bool = False
     confirmation_chat_id: Optional[str] = None
     confirmation_send_mode: str = "group"
     confirmation_template: str = ""
+    notify_on_confirmation: bool = True
+    attach_cp_on_confirmation: bool = False
     has_token: bool = False
 
 

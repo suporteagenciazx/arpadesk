@@ -9,6 +9,7 @@ from app.permissions import can_access_payments
 from app.models import Payment, PaymentStatus, ProjectPaymentSettings, User, UserLevel
 from app.schemas import PaymentCreate, PaymentOut
 from app.services.finance import compute_commissions
+from app.services.cache import cached_json, cache_delete_prefix
 
 router = APIRouter(prefix="/api/projects/{project_id}/payments", tags=["payments"])
 
@@ -26,8 +27,10 @@ def _destination(ps: ProjectPaymentSettings | None) -> dict | None:
     }
 
 
-def _calc_final(base: float, adjustment: float, apply_fine: bool, fine_pct: float) -> tuple[float, float, float]:
-    fine_amt = round(base * fine_pct / 100, 2) if apply_fine else 0
+def _calc_final(
+    base: float, adjustment: float, apply_fine: bool, fine_amount: float
+) -> tuple[float, float]:
+    fine_amt = round(fine_amount, 2) if apply_fine else 0
     final = round(base + adjustment - fine_amt, 2)
     return fine_amt, final
 
@@ -88,7 +91,11 @@ def payment_commissions(
         raise HTTPException(403, "Sem acesso")
     ps_date = date.fromisoformat(period_start) if period_start else None
     pe_date = date.fromisoformat(period_end) if period_end else None
-    return {"commissions": compute_commissions(db, project_id, ps_date, pe_date)}
+    commissions = cached_json(
+        f"commissions:{project_id}:{ps_date}:{pe_date}",
+        lambda: compute_commissions(db, project_id, ps_date, pe_date),
+    )
+    return {"commissions": commissions}
 
 
 @router.get("/preview")
@@ -111,6 +118,8 @@ def payment_preview(
         "commissions": commissions,
         "payment_destination": _destination(ps),
         "default_fine_percent": float(ps.default_fine_percent or 0),
+        "default_fine_amount": float(ps.default_fine_amount or 0),
+        "default_fine_notes": ps.default_fine_notes or "",
     }
 
 
@@ -128,13 +137,22 @@ def create_payment(
         raise HTTPException(400, "Configure destino de pagamento (PIX ou Cripto) antes do primeiro pagamento")
     fine_pct = data.fine_percent if data.fine_percent is not None else float(ps.default_fine_percent or 0)
     adjustment = float(data.adjustment_amount or 0)
-    fine_amt, final = _calc_final(data.base_amount, adjustment, data.apply_fine, fine_pct)
+    if data.apply_fine:
+        if data.fine_amount is not None:
+            fine_amt = float(data.fine_amount)
+        else:
+            fine_amt = float(ps.default_fine_amount or 0)
+            if not fine_amt and fine_pct:
+                fine_amt = round(data.base_amount * fine_pct / 100, 2)
+    else:
+        fine_amt = 0
+    _, final = _calc_final(data.base_amount, adjustment, data.apply_fine, fine_amt)
     payment = Payment(
         project_id=project_id,
         participant_id=data.participant_id,
         base_amount=data.base_amount,
         adjustment_amount=adjustment,
-        fine_percent=fine_pct if data.apply_fine else 0,
+        fine_percent=fine_pct if data.apply_fine and not data.fine_amount else 0,
         fine_amount=fine_amt,
         final_amount=final,
         apply_fine=data.apply_fine,
@@ -144,6 +162,8 @@ def create_payment(
     )
     db.add(payment)
     db.commit()
+    cache_delete_prefix(f"summary:{project_id}:")
+    cache_delete_prefix(f"commissions:{project_id}:")
     payment = db.query(Payment).options(joinedload(Payment.participant)).filter(Payment.id == payment.id).first()
     return _payment_out(payment, ps)
 

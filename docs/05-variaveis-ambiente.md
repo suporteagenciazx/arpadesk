@@ -57,11 +57,32 @@ Referência das variáveis usadas pelo Arpadesk. Copie `.env.example` para `.env
 
 ---
 
-## Uploads
+## Uploads / MinIO (comprovantes)
 
 | Variável | Obrigatório | Default dev | Descrição |
 |----------|-------------|-------------|-----------|
-| `UPLOAD_DIR` | não | `/data/uploads` | Pasta de comprovantes no container backend |
+| `UPLOAD_DIR` | não | `/data/uploads` | Pasta legada no container (não usada para CP) |
+| `S3_ENDPOINT` | sim* | `http://minio:9000` | URL interna do MinIO (`minio:9000` no Docker) |
+| `S3_ACCESS_KEY` | sim* | `arpadesk` | Usuário root MinIO |
+| `S3_SECRET_KEY` | sim* | — | Senha root MinIO — **forte em prod** |
+| `S3_BUCKET` | não | `arpadesk` | Bucket dos comprovantes (criado no 1º start) |
+| `S3_REGION` | não | `us-east-1` | Região S3 (MinIO aceita qualquer valor) |
+| `S3_USE_SSL` | não | `false` | `true` se MinIO com TLS |
+| `S3_PRESIGN_EXPIRES` | não | `3600` | Segundos da URL temporária de download |
+| `S3_PUBLIC_ENDPOINT` | não | `http://localhost:9000` (dev) | Host público do MinIO para URLs assinadas (VPS: vazio ou proxy) |
+
+\* Obrigatório para upload de CP. Console MinIO local: `http://localhost:9001`
+
+---
+
+## Redis (cache)
+
+| Variável | Obrigatório | Default dev | Descrição |
+|----------|-------------|-------------|-----------|
+| `REDIS_URL` | não | `redis://redis:6379/0` | Cache de `/summary`, `/report` e `/payments/commissions` |
+| `REDIS_CACHE_TTL` | não | `120` | TTL em segundos |
+
+Se `REDIS_URL` estiver vazio, o sistema funciona sem cache.
 
 ---
 
@@ -98,6 +119,12 @@ VITE_API_URL=http://localhost:8000
 
 UPLOAD_DIR=/data/uploads
 
+S3_ENDPOINT=http://minio:9000
+S3_ACCESS_KEY=arpadesk
+S3_SECRET_KEY=devminiopass
+S3_BUCKET=arpadesk
+REDIS_URL=redis://redis:6379/0
+
 SEEDED_ADMIN_EMAIL=admin@arpadesk.local
 SEEDED_ADMIN_PASSWORD=Admin@123
 SEEDED_ADMIN_NAME=Administrador
@@ -132,7 +159,18 @@ SEEDED_ADMIN_PASSWORD=<senha forte — trocar após 1º login>
 | Serviço | Fonte |
 |---------|-------|
 | `postgres` | `POSTGRES_*` no compose |
+| `minio` | `S3_*` no compose / `.env` |
+| `redis` | `REDIS_URL` no compose |
 | `backend` | `env_file: .env` + overrides no compose |
 | `frontend` (build prod) | `VITE_API_URL` como build arg |
 | `frontend` (dev) | `environment` no compose dev |
 | `caddy` | `DOMAIN` no compose prod |
+
+## Datas e períodos
+
+Não há variável de ambiente para semana operacional. A regra está em código:
+
+- Frontend: `frontend/src/lib/calendar.js`
+- Backend: `backend/app/services/calendar.py`
+
+Documentação: [06-calendario-periodos.md](./06-calendario-periodos.md). Na VPS, configure `timedatectl set-timezone America/Sao_Paulo` para que `date.today()` do backend coincida com o calendário brasileiro.

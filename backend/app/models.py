@@ -102,6 +102,7 @@ class Project(Base):
     sales: Mapped[list["Sale"]] = relationship(back_populates="project")
     expenses: Mapped[list["Expense"]] = relationship(back_populates="project")
     payments: Mapped[list["Payment"]] = relationship(back_populates="project")
+    period_fines: Mapped[list["PeriodFine"]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
 
 class ProjectMember(Base):
@@ -129,6 +130,8 @@ class ProjectPaymentSettings(Base):
     crypto_network: Mapped[str | None] = mapped_column(String(80), nullable=True)
     crypto_qr: Mapped[str | None] = mapped_column(Text, nullable=True)
     default_fine_percent: Mapped[float] = mapped_column(Numeric(5, 2), default=0)
+    default_fine_amount: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    default_fine_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="payment_settings")
 
@@ -195,6 +198,28 @@ class Payment(Base):
     participant: Mapped["User"] = relationship()
 
 
+class PeriodFine(Base):
+    __tablename__ = "period_fines"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id", "participant_id", "period_start", "period_end", name="uq_period_fine"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    participant_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    amount: Mapped[float] = mapped_column(Numeric(12, 2))
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    project: Mapped["Project"] = relationship(back_populates="period_fines")
+    participant: Mapped["User"] = relationship(foreign_keys=[participant_id])
+
+
 class TelegramSettings(Base):
     __tablename__ = "telegram_settings"
 
@@ -209,9 +234,12 @@ class TelegramSettings(Base):
     )
     registration_template: Mapped[str | None] = mapped_column(Text, nullable=True)
     notify_on_registration: Mapped[bool] = mapped_column(Boolean, default=False)
+    attach_cp_on_registration: Mapped[bool] = mapped_column(Boolean, default=False)
     confirmation_chat_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     confirmation_send_mode: Mapped[TelegramSendMode] = mapped_column(
         Enum(TelegramSendMode), default=TelegramSendMode.group
     )
     confirmation_template: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notify_on_confirmation: Mapped[bool] = mapped_column(Boolean, default=True)
+    attach_cp_on_confirmation: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

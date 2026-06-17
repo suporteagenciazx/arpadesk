@@ -7,20 +7,30 @@ import PeriodHint from "../../components/PeriodHint";
 import FinanceTabGuard from "../../components/FinanceTabGuard";
 import { UserIcon } from "../../components/Icons";
 import { useDateFilter } from "../../hooks/useDateFilter";
-import { fmtMoney, fmtDate } from "../../lib/constants";
+import { fmtMoney } from "../../lib/constants";
+import { maskMoney, parseMoney } from "../../lib/masks";
 
-function calcFinal(base, adjustment, applyFine, finePct) {
-  const fine = applyFine ? Math.round(base * (finePct / 100) * 100) / 100 : 0;
+function calcFinal(base, adjustment, applyFine, fineAmount) {
+  const fine = applyFine ? Math.round((parseFloat(fineAmount) || 0) * 100) / 100 : 0;
   const final = Math.round((base + adjustment - fine) * 100) / 100;
   return { fine, final };
 }
+
+const emptyDraft = () => ({
+  adjustment: null,
+  adjustment_notes: "",
+  apply_fine: false,
+  fine_amount: null,
+  fine_notes: "",
+});
 
 export default function Pagamentos() {
   const { projectId } = useParams();
   const [summary, setSummary] = useState(null);
   const [payments, setPayments] = useState([]);
   const [hasPaymentSettings, setHasPaymentSettings] = useState(false);
-  const [defaultFinePercent, setDefaultFinePercent] = useState(0);
+  const [defaultFineAmount, setDefaultFineAmount] = useState(0);
+  const [defaultFineNotes, setDefaultFineNotes] = useState("");
   const filter = useDateFilter("atual");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [rowDraft, setRowDraft] = useState({});
@@ -35,6 +45,8 @@ export default function Pagamentos() {
     crypto_network: "",
     crypto_qr: "",
     default_fine_percent: 0,
+    default_fine_amount: 0,
+    default_fine_notes: "",
   });
 
   const periodParams = (start = filter.periodStart, end = filter.periodEnd) => {
@@ -46,10 +58,11 @@ export default function Pagamentos() {
 
   const load = async (start = filter.periodStart, end = filter.periodEnd) => {
     const params = periodParams(start, end);
-    const [summaryRes, paymentsRes, psRes] = await Promise.all([
+    const [summaryRes, paymentsRes, psRes, finesRes] = await Promise.all([
       api.get(`/api/projects/${projectId}/payments/commissions`, { params }),
       api.get(`/api/projects/${projectId}/payments`, { params }).catch(() => ({ data: [] })),
       api.get(`/api/projects/${projectId}/payment-settings`).catch(() => ({ data: null })),
+      api.get(`/api/projects/${projectId}/fines`, { params }).catch(() => ({ data: [] })),
     ]);
     setSummary({ commissions: summaryRes.data.commissions || [] });
     setPayments(paymentsRes.data || []);
@@ -57,15 +70,21 @@ export default function Pagamentos() {
     setHasPaymentSettings(Boolean(ps?.pix_key || ps?.crypto_address));
     if (ps) {
       setSettings((prev) => ({ ...prev, ...ps }));
-      setDefaultFinePercent(ps.default_fine_percent || 0);
+      setDefaultFineAmount(ps.default_fine_amount || 0);
+      setDefaultFineNotes(ps.default_fine_notes || "");
     }
+    const fines = finesRes.data || [];
     setRowDraft((prev) => {
       const drafts = {};
       (summaryRes.data?.commissions || []).forEach((c) => {
-        drafts[c.user_id] = prev[c.user_id] || {
-          adjustment: null,
-          apply_fine: false,
-          fine_percent: String(ps?.default_fine_percent || 0),
+        drafts[c.user_id] = prev[c.user_id] || emptyDraft();
+      });
+      fines.forEach((f) => {
+        drafts[f.participant_id] = {
+          ...(drafts[f.participant_id] || emptyDraft()),
+          apply_fine: true,
+          fine_amount: f.amount,
+          fine_notes: f.notes || "",
         };
       });
       return drafts;
@@ -86,7 +105,7 @@ export default function Pagamentos() {
   const updateDraft = (userId, patch) => {
     setRowDraft((d) => ({
       ...d,
-      [userId]: { ...(d[userId] || {}), ...patch },
+      [userId]: { ...(d[userId] || emptyDraft()), ...patch },
     }));
   };
 
@@ -108,25 +127,42 @@ export default function Pagamentos() {
     return map;
   }, [payments, filter.periodStart, filter.periodEnd]);
 
+  const rowFinal = (c) => {
+    const draft = rowDraft[c.user_id] || emptyDraft();
+    const paid = paidByUser.get(c.user_id);
+    if (paid) return paid.final_amount;
+    const adjustment = draft.adjustment ?? 0;
+    const fineAmt = draft.apply_fine ? draft.fine_amount ?? defaultFineAmount : 0;
+    return calcFinal(c.commission_amount, adjustment, draft.apply_fine, fineAmt).final;
+  };
+
+  const totalToPay = useMemo(() => {
+    return rows.reduce((sum, c) => {
+      if (paidByUser.has(c.user_id)) return sum;
+      return sum + rowFinal(c);
+    }, 0);
+  }, [rows, rowDraft, paidByUser, defaultFineAmount]);
+
   const openConfirm = (c) => {
     if (!hasPaymentSettings) {
       alert("Configure o destino de pagamento (PIX ou Cripto) antes de confirmar.");
       setSettingsOpen(true);
       return;
     }
-    const draft = rowDraft[c.user_id] || {};
+    const draft = rowDraft[c.user_id] || emptyDraft();
     const adjustment = draft.adjustment ?? 0;
     const applyFine = Boolean(draft.apply_fine);
-    const finePct = parseFloat(draft.fine_percent) || defaultFinePercent || 0;
-    const { fine, final } = calcFinal(c.commission_amount, adjustment, applyFine, finePct);
+    const fineAmt = applyFine ? draft.fine_amount ?? defaultFineAmount : 0;
+    const { fine, final } = calcFinal(c.commission_amount, adjustment, applyFine, fineAmt);
     setConfirmPay({
       user_id: c.user_id,
       user_name: c.user_name,
       base_amount: c.commission_amount,
       adjustment,
+      adjustment_notes: draft.adjustment_notes,
       apply_fine: applyFine,
-      fine_percent: finePct,
       fine_amount: fine,
+      fine_notes: draft.fine_notes,
       final_amount: final,
     });
   };
@@ -135,14 +171,22 @@ export default function Pagamentos() {
     if (!confirmPay) return;
     setConfirming(true);
     try {
+      const noteParts = [];
+      if (confirmPay.adjustment_notes?.trim()) {
+        noteParts.push(`Ajuste: ${confirmPay.adjustment_notes.trim()}`);
+      }
+      if (confirmPay.fine_notes?.trim()) {
+        noteParts.push(`Multa: ${confirmPay.fine_notes.trim()}`);
+      }
       const { data: payment } = await api.post(`/api/projects/${projectId}/payments`, {
         participant_id: confirmPay.user_id,
         base_amount: confirmPay.base_amount,
         adjustment_amount: confirmPay.adjustment,
         apply_fine: confirmPay.apply_fine,
-        fine_percent: confirmPay.apply_fine ? confirmPay.fine_percent : undefined,
+        fine_amount: confirmPay.apply_fine ? confirmPay.fine_amount : undefined,
         period_start: filter.periodStart || null,
         period_end: filter.periodEnd || null,
+        notes: noteParts.length ? noteParts.join("\n") : undefined,
       });
       await api.patch(`/api/projects/${projectId}/payments/${payment.id}/mark-paid`);
       setConfirmPay(null);
@@ -154,44 +198,76 @@ export default function Pagamentos() {
     }
   };
 
-  const saveEditField = (e) => {
+  const saveEditField = async (e) => {
     e.preventDefault();
     if (!editField) return;
     const form = new FormData(e.target);
     if (editField.field === "adjustment") {
-      const val = form.get("adjustment");
+      const raw = form.get("adjustment");
       updateDraft(editField.userId, {
-        adjustment: val === "" || val === null ? null : parseFloat(val),
+        adjustment: raw === "" || raw === null ? null : parseFloat(raw),
+        adjustment_notes: String(form.get("adjustment_notes") || ""),
       });
     } else {
-      const apply = form.get("apply_fine") === "on";
+      const rawAmount = form.get("fine_amount");
+      const amount =
+        rawAmount === "" || rawAmount === null
+          ? defaultFineAmount
+          : parseMoney(String(rawAmount));
+      const notes = String(form.get("fine_notes") || "");
       updateDraft(editField.userId, {
-        apply_fine: apply,
-        fine_percent: form.get("fine_percent") || String(defaultFinePercent),
+        apply_fine: true,
+        fine_amount: amount,
+        fine_notes: notes,
       });
+      if (filter.periodStart && filter.periodEnd && amount > 0) {
+        try {
+          await api.post(`/api/projects/${projectId}/fines`, {
+            participant_id: editField.userId,
+            period_start: filter.periodStart,
+            period_end: filter.periodEnd,
+            amount,
+            notes: notes || null,
+          });
+        } catch (err) {
+          alert(err.response?.data?.detail || "Erro ao salvar multa");
+        }
+      }
     }
     setEditField(null);
   };
 
-  const periodLabel = `${fmtDate(filter.periodStart)} — ${fmtDate(filter.periodEnd)}`;
-
   return (
     <FinanceTabGuard tab="pagamentos">
       <div>
-        <DateFilterBar
-          preset={filter.preset}
-          onPresetChange={(id) => filter.applyPreset(id, load)}
-          periodStart={filter.periodStart}
-          periodEnd={filter.periodEnd}
-          onPeriodStartChange={filter.setPeriodStart}
-          onPeriodEndChange={filter.setPeriodEnd}
+        <div className="date-filter-row">
+          <DateFilterBar
+            preset={filter.preset}
+            onPresetChange={(id) => filter.applyPreset(id, load)}
+            periodStart={filter.periodStart}
+            periodEnd={filter.periodEnd}
+            onPeriodStartChange={filter.setPeriodStart}
+            onPeriodEndChange={filter.setPeriodEnd}
           onApplyCustom={(e) => {
             e.preventDefault();
             load(filter.periodStart, filter.periodEnd);
           }}
+          showWeekNav={filter.showWeekNav}
+          weekInfo={filter.weekInfo}
+          onWeekShift={(delta) => {
+            const r = filter.shiftWeek(delta);
+            load(r.start, r.end);
+          }}
         />
+          {summary && (
+            <div className="payment-total-card">
+              <span>Total a pagar no período</span>
+              <strong>{fmtMoney(totalToPay)}</strong>
+            </div>
+          )}
+        </div>
 
-        <PeriodHint start={filter.periodStart} end={filter.periodEnd} preset={filter.preset} />
+        <PeriodHint start={filter.periodStart} end={filter.periodEnd} preset={filter.preset} weekInfo={filter.weekInfo} />
 
         {!hasPaymentSettings && (
           <div className="alert">
@@ -210,13 +286,13 @@ export default function Pagamentos() {
                   <th>Comissão</th>
                   <th>Ajuste</th>
                   <th>Multa</th>
-                  <th>Período</th>
+                  <th>Valor final</th>
                   <th>Status</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((c) => {
-                  const draft = rowDraft[c.user_id] || {};
+                  const draft = rowDraft[c.user_id] || emptyDraft();
                   const paid = paidByUser.get(c.user_id);
                   const hasAdjustment = draft.adjustment !== null && draft.adjustment !== undefined;
                   const hasFine = Boolean(draft.apply_fine);
@@ -262,12 +338,10 @@ export default function Pagamentos() {
                       </td>
                       <td>
                         {paid ? (
-                          paid.apply_fine
-                            ? `${paid.fine_percent}% (${fmtMoney(paid.fine_amount)})`
-                            : "—"
+                          paid.apply_fine ? fmtMoney(paid.fine_amount) : "—"
                         ) : hasFine ? (
                           <span>
-                            {draft.fine_percent}%{" "}
+                            {fmtMoney(draft.fine_amount ?? defaultFineAmount)}{" "}
                             <button
                               type="button"
                               className="btn btn-ghost btn-sm"
@@ -290,7 +364,9 @@ export default function Pagamentos() {
                           </button>
                         )}
                       </td>
-                      <td>{periodLabel}</td>
+                      <td>
+                        <strong>{fmtMoney(rowFinal(c))}</strong>
+                      </td>
                       <td>
                         {paid ? (
                           <span className="badge badge-pago">Pago</span>
@@ -360,17 +436,6 @@ export default function Pagamentos() {
                 </label>
               </>
             )}
-            <label>
-              Multa padrão (%)
-              <input
-                type="number"
-                step="0.01"
-                value={settings.default_fine_percent}
-                onChange={(e) =>
-                  setSettings({ ...settings, default_fine_percent: Number(e.target.value) })
-                }
-              />
-            </label>
             <div className="form-actions full">
               <button type="submit" className="btn btn-primary">
                 Salvar
@@ -386,36 +451,59 @@ export default function Pagamentos() {
         >
           {editField && (
             <form onSubmit={saveEditField}>
-              <p className="hint">Gerente: <strong>{editField.name}</strong></p>
+              <p className="hint">
+                Gerente: <strong>{editField.name}</strong>
+              </p>
               {editField.field === "adjustment" ? (
-                <label>
-                  Valor do ajuste (negativo desconta, positivo adiciona)
-                  <input
-                    type="number"
-                    step="0.01"
-                    name="adjustment"
-                    defaultValue={rowDraft[editField.userId]?.adjustment ?? ""}
-                    placeholder="0,00"
-                  />
-                </label>
-              ) : (
                 <>
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      name="apply_fine"
-                      defaultChecked={rowDraft[editField.userId]?.apply_fine}
-                    />
-                    Aplicar multa sobre a comissão
-                  </label>
                   <label>
-                    Multa (%)
+                    Valor do ajuste (negativo desconta, positivo adiciona)
                     <input
                       type="number"
                       step="0.01"
-                      min="0"
-                      name="fine_percent"
-                      defaultValue={rowDraft[editField.userId]?.fine_percent ?? defaultFinePercent}
+                      name="adjustment"
+                      defaultValue={rowDraft[editField.userId]?.adjustment ?? ""}
+                      placeholder="0,00"
+                    />
+                  </label>
+                  <label className="full">
+                    Motivo do ajuste
+                    <textarea
+                      rows={3}
+                      name="adjustment_notes"
+                      defaultValue={rowDraft[editField.userId]?.adjustment_notes || ""}
+                      placeholder="Descreva o motivo do ajuste..."
+                    />
+                  </label>
+                </>
+              ) : (
+                <>
+                  <label>
+                    Valor da multa (R$)
+                    <input
+                      name="fine_amount"
+                      inputMode="decimal"
+                      defaultValue={
+                        rowDraft[editField.userId]?.fine_amount != null
+                          ? String(rowDraft[editField.userId].fine_amount).replace(".", ",")
+                          : defaultFineAmount
+                            ? String(defaultFineAmount).replace(".", ",")
+                            : ""
+                      }
+                      placeholder="0,00"
+                    />
+                  </label>
+                  <label className="full">
+                    Observações
+                    <textarea
+                      rows={4}
+                      name="fine_notes"
+                      defaultValue={
+                        rowDraft[editField.userId]?.fine_notes ||
+                        defaultFineNotes ||
+                        ""
+                      }
+                      placeholder="Motivo, contexto ou quem está cadastrando a multa..."
                     />
                   </label>
                 </>
@@ -442,16 +530,10 @@ export default function Pagamentos() {
               <p>
                 Confirmar pagamento para <strong>{confirmPay.user_name}</strong>?
               </p>
-              <p className="hint">Período: {periodLabel}</p>
               <ul className="confirm-pay-list">
                 <li>Comissão: {fmtMoney(confirmPay.base_amount)}</li>
                 <li>Ajuste: {fmtMoney(confirmPay.adjustment)}</li>
-                <li>
-                  Multa:{" "}
-                  {confirmPay.apply_fine
-                    ? `${confirmPay.fine_percent}% (${fmtMoney(confirmPay.fine_amount)})`
-                    : "—"}
-                </li>
+                <li>Multa: {confirmPay.apply_fine ? fmtMoney(confirmPay.fine_amount) : "—"}</li>
                 <li>
                   <strong>Valor final: {fmtMoney(confirmPay.final_amount)}</strong>
                 </li>

@@ -1,6 +1,7 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import Response
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth_utils import verify_password
@@ -8,8 +9,25 @@ from app.database import get_db
 from app.dependencies import get_current_user, user_has_project_access
 from app.models import Sale, SaleStatus, User, UserLevel, generate_sale_code
 from app.permissions import can_change_sale_status, can_register_sale
-from app.schemas import SaleCreate, SaleDeleteRequest, SaleOut, SaleUpdate
+from app.schemas import SaleAttachmentUrlOut, SaleCreate, SaleDeleteRequest, SaleOut, SaleUpdate
+from app.services.storage import (
+    StorageError,
+    delete_object,
+    download_object,
+    object_filename,
+    presigned_get_url,
+    storage_enabled,
+    upload_sale_cp,
+)
 from app.services.telegram_templates import notify_sale_on_ok, notify_sale_registration
+
+
+def _invalidate_project_cache(project_id: int) -> None:
+    from app.services.cache import cache_delete_prefix
+
+    cache_delete_prefix(f"summary:{project_id}:")
+    cache_delete_prefix(f"report:{project_id}:")
+    cache_delete_prefix(f"commissions:{project_id}:")
 
 router = APIRouter(prefix="/api/projects/{project_id}/sales", tags=["sales"])
 
@@ -29,6 +47,7 @@ def _sale_out(s: Sale) -> SaleOut:
         status=s.status,
         sale_date=s.sale_date,
         cp_attachment_url=s.cp_attachment_url,
+        has_cp_attachment=bool(s.cp_attachment_url),
         created_at=s.created_at,
     )
 
@@ -60,6 +79,7 @@ def list_sales(
 def create_sale(
     project_id: int,
     data: SaleCreate,
+    defer_notify: bool = Query(False, description="Aguardar upload do CP antes de notificar Telegram"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -88,9 +108,94 @@ def create_sale(
     db.add(sale)
     db.commit()
     db.refresh(sale)
+    _invalidate_project_cache(project_id)
     sale = db.query(Sale).options(joinedload(Sale.participant)).filter(Sale.id == sale.id).first()
-    notify_sale_registration(db, sale.id, project_id)
+    if not defer_notify:
+        notify_sale_registration(db, sale.id, project_id)
     return _sale_out(sale)
+
+
+@router.post("/{sale_id}/attachment", response_model=SaleOut)
+async def upload_sale_attachment(
+    project_id: int,
+    sale_id: int,
+    file: UploadFile = File(...),
+    notify: bool = Query(True, description="Disparar notificação de registro após anexar"),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not user_has_project_access(db, user, project_id):
+        raise HTTPException(403, "Sem acesso")
+    if not can_register_sale(user):
+        raise HTTPException(403, "Sem permissão para anexar comprovante")
+    if not storage_enabled():
+        raise HTTPException(503, "Armazenamento de arquivos não configurado (MinIO/S3)")
+    sale = db.query(Sale).filter(Sale.id == sale_id, Sale.project_id == project_id).first()
+    if not sale:
+        raise HTTPException(404, "Venda não encontrada")
+    try:
+        if sale.cp_attachment_url:
+            delete_object(sale.cp_attachment_url)
+        sale.cp_attachment_url = await upload_sale_cp(project_id, sale_id, file)
+        db.commit()
+        _invalidate_project_cache(project_id)
+    except StorageError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    if notify:
+        notify_sale_registration(db, sale.id, project_id)
+    sale = db.query(Sale).options(joinedload(Sale.participant)).filter(Sale.id == sale.id).first()
+    return _sale_out(sale)
+
+
+@router.get("/{sale_id}/attachment", response_model=SaleAttachmentUrlOut)
+def get_sale_attachment_url(
+    project_id: int,
+    sale_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not user_has_project_access(db, user, project_id):
+        raise HTTPException(403, "Sem acesso")
+    sale = db.query(Sale).filter(Sale.id == sale_id, Sale.project_id == project_id).first()
+    if not sale:
+        raise HTTPException(404, "Venda não encontrada")
+    if not sale.cp_attachment_url:
+        raise HTTPException(404, "Venda sem comprovante anexado")
+    if not storage_enabled():
+        raise HTTPException(503, "Armazenamento de arquivos não configurado")
+    try:
+        url = presigned_get_url(sale.cp_attachment_url)
+    except StorageError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return SaleAttachmentUrlOut(url=url)
+
+
+@router.get("/{sale_id}/attachment/download")
+def download_sale_attachment(
+    project_id: int,
+    sale_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not user_has_project_access(db, user, project_id):
+        raise HTTPException(403, "Sem acesso")
+    sale = db.query(Sale).filter(Sale.id == sale_id, Sale.project_id == project_id).first()
+    if not sale:
+        raise HTTPException(404, "Venda não encontrada")
+    if not sale.cp_attachment_url:
+        raise HTTPException(404, "Venda sem comprovante anexado")
+    if not storage_enabled():
+        raise HTTPException(503, "Armazenamento de arquivos não configurado")
+    try:
+        body, content_type = download_object(sale.cp_attachment_url)
+    except StorageError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    filename = object_filename(sale.cp_attachment_url)
+    return Response(
+        content=body,
+        media_type=content_type,
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.patch("/{sale_id}", response_model=SaleOut)
@@ -127,6 +232,7 @@ def update_sale(
     if data.doc_type and data.doc_type.upper() != "OUTROS":
         sale.doc_custom = None
     db.commit()
+    _invalidate_project_cache(project_id)
     if data.status is not None and previous_status != sale.status:
         notify_sale_on_ok(db, sale.id, project_id)
     sale = db.query(Sale).options(joinedload(Sale.participant)).filter(Sale.id == sale.id).first()
@@ -156,5 +262,8 @@ def delete_sale(
     sale = db.query(Sale).filter(Sale.id == sale_id, Sale.project_id == project_id).first()
     if not sale:
         raise HTTPException(404, "Venda não encontrada")
+    if sale.cp_attachment_url:
+        delete_object(sale.cp_attachment_url)
     db.delete(sale)
     db.commit()
+    _invalidate_project_cache(project_id)

@@ -25,7 +25,7 @@ copy .env.example .env
 docker compose -f docker-compose.dev.yml up --build
 ```
 
-Aguarde os containers `postgres`, `backend` e `frontend` ficarem **healthy/running**.
+Aguarde os containers `postgres`, `minio`, `redis`, `backend` e `frontend` ficarem **running**.
 
 ## URLs locais
 
@@ -36,7 +36,10 @@ Aguarde os containers `postgres`, `backend` e `frontend` ficarem **healthy/runni
 | API           | [http://localhost:8000](http://localhost:8000)                       |
 | Swagger (dev) | [http://localhost:8000/docs](http://localhost:8000/docs)             |
 | Health check  | [http://localhost:8000/api/health](http://localhost:8000/api/health) |
+| MinIO API     | [http://localhost:9000](http://localhost:9000)                       |
+| MinIO Console | [http://localhost:9001](http://localhost:9001) (user/senha do `.env`) |
 | PostgreSQL    | localhost:5432 (user/pass no `.env`)                                 |
+| Redis         | localhost:6379 (cache interno; opcional no host)                   |
 
 
 ## Checklist primeiro run
@@ -53,7 +56,10 @@ Teste rápido no PowerShell:
 
 ```powershell
 curl http://localhost:8000/api/health
+node frontend/src/lib/calendar.validate.mjs
 ```
+
+O segundo comando valida a semana operacional (seg–sex) dos filtros financeiros.
 
 ## Rodar só o banco (backend/frontend no host)
 
@@ -102,5 +108,6 @@ Usuários demo criados no seed (desenvolvimento):
 
 - Comandos do dia a dia: [02-docker-local.md](./02-docker-local.md)
 - Variáveis de ambiente: [05-variaveis-ambiente.md](./05-variaveis-ambiente.md)
+- Calendário e filtros de período: [06-calendario-periodos.md](./06-calendario-periodos.md)
 - O que construir: [PLANO-MVP.md](./PLANO-MVP.md)
 

@@ -90,10 +90,13 @@ export default function Telegram() {
   const [regSendMode, setRegSendMode] = useState("group");
   const [regTemplate, setRegTemplate] = useState(DEFAULT_REGISTRATION);
   const [regEnabled, setRegEnabled] = useState(false);
+  const [regAttachCp, setRegAttachCp] = useState(false);
 
   const [confChatId, setConfChatId] = useState("");
   const [confSendMode, setConfSendMode] = useState("group");
   const [confTemplate, setConfTemplate] = useState(DEFAULT_CONFIRMATION);
+  const [confAttachCp, setConfAttachCp] = useState(false);
+  const [confEnabled, setConfEnabled] = useState(true);
 
   const [variableGroups, setVariableGroups] = useState([]);
   const [discoveredChats, setDiscoveredChats] = useState([]);
@@ -120,9 +123,12 @@ export default function Telegram() {
         setRegSendMode(data.registration_send_mode || "group");
         setRegTemplate(data.registration_template || DEFAULT_REGISTRATION);
         setRegEnabled(Boolean(data.notify_on_registration));
+        setRegAttachCp(Boolean(data.attach_cp_on_registration));
         setConfChatId(data.confirmation_chat_id || "");
         setConfSendMode(data.confirmation_send_mode || "group");
         setConfTemplate(data.confirmation_template || data.message_template || DEFAULT_CONFIRMATION);
+        setConfAttachCp(Boolean(data.attach_cp_on_confirmation));
+        setConfEnabled(data.notify_on_confirmation !== false);
         setVariableGroups(varsRes.data.groups || []);
       })
       .catch((e) => setError((prev) => ({ ...prev, bot: e.response?.data?.detail || "Erro ao carregar" })))
@@ -193,6 +199,7 @@ export default function Telegram() {
         send_mode: regSendMode,
         template: regTemplate,
         enabled: regEnabled,
+        attach_cp: regAttachCp,
       });
       if (data.registration_chat_id) setRegChatId(data.registration_chat_id);
       setFeedback((f) => ({ ...f, registration: "Notificações de registro salvas." }));
@@ -231,6 +238,8 @@ export default function Telegram() {
         chat_id: confChatId,
         send_mode: confSendMode,
         template: confTemplate,
+        enabled: confEnabled,
+        attach_cp: confAttachCp,
       });
       if (data.confirmation_chat_id) setConfChatId(data.confirmation_chat_id);
       setFeedback((f) => ({ ...f, confirmation: "Notificações de confirmação salvas." }));
@@ -327,6 +336,24 @@ export default function Telegram() {
             </button>
           </div>
 
+          <div className="settings-row" style={{ marginBottom: "1rem" }}>
+            <div>
+              <strong>Enviar comprovante (CP) anexo</strong>
+              <p className="hint-inline">
+                Quando a venda tiver CP no MinIO, envia o arquivo junto com a mensagem (legenda = template).
+              </p>
+            </div>
+            <button
+              type="button"
+              className={`switch ${regAttachCp ? "on" : ""}`}
+              role="switch"
+              aria-checked={regAttachCp}
+              onClick={() => setRegAttachCp((v) => !v)}
+            >
+              <span className="switch-thumb" />
+            </button>
+          </div>
+
           <DestinationFields
             chatId={regChatId}
             sendMode={regSendMode}
@@ -370,6 +397,42 @@ export default function Telegram() {
         {error.confirmation && <p className="error">{error.confirmation}</p>}
 
         <form onSubmit={saveConfirmation}>
+          <div className="settings-row" style={{ marginBottom: "1rem" }}>
+            <div>
+              <strong>Ativar notificações de confirmação</strong>
+              <p className="hint-inline">
+                Enviadas quando o financeiro confirma a venda (status OK), se o switch do projeto também estiver ativo.
+              </p>
+            </div>
+            <button
+              type="button"
+              className={`switch ${confEnabled ? "on" : ""}`}
+              role="switch"
+              aria-checked={confEnabled}
+              onClick={() => setConfEnabled((v) => !v)}
+            >
+              <span className="switch-thumb" />
+            </button>
+          </div>
+
+          <div className="settings-row" style={{ marginBottom: "1rem" }}>
+            <div>
+              <strong>Enviar comprovante (CP) anexo</strong>
+              <p className="hint-inline">
+                Na confirmação (status OK), anexa o CP da venda quando existir.
+              </p>
+            </div>
+            <button
+              type="button"
+              className={`switch ${confAttachCp ? "on" : ""}`}
+              role="switch"
+              aria-checked={confAttachCp}
+              onClick={() => setConfAttachCp((v) => !v)}
+            >
+              <span className="switch-thumb" />
+            </button>
+          </div>
+
           <DestinationFields
             chatId={confChatId}
             sendMode={confSendMode}

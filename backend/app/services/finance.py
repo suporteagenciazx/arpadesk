@@ -1,6 +1,10 @@
+import re
+
 from datetime import date, timedelta
 
 from sqlalchemy.orm import Session, joinedload
+
+from app.services.calendar import operational_week_range, previous_operational_week
 
 from app.models import (
     DEFAULT_DOC_TYPES,
@@ -17,6 +21,31 @@ from app.auth_utils import hash_password
 from app.config import settings
 
 GLOBAL_COMMISSION_LEVELS = {UserLevel.contador, UserLevel.financeiro}
+
+LEVEL_SORT_ORDER = {
+    UserLevel.contador: 0,
+    UserLevel.financeiro: 1,
+    UserLevel.ilustrativo: 2,
+    UserLevel.agente: 3,
+}
+
+
+def _commission_sort_key(row: dict) -> tuple:
+    level_str = row.get("user_level", "")
+    try:
+        pri = LEVEL_SORT_ORDER.get(UserLevel(level_str), 99)
+    except ValueError:
+        pri = 99
+    name = (row.get("user_name") or "").lower()
+    g_num = 999
+    if "gerente" in name or re.search(r"\bg\d", name):
+        m = re.search(r"(\d+)", name)
+        g_num = int(m.group(1)) if m else 0
+    return (pri, g_num, name)
+
+
+def sort_commissions(rows: list[dict]) -> list[dict]:
+    return sorted(rows, key=_commission_sort_key)
 
 
 def slugify(name: str) -> str:
@@ -216,7 +245,7 @@ def compute_commissions(db: Session, project_id: int, period_start=None, period_
                 "commission_amount": round(base * pct / 100, 2),
             }
         )
-    return result
+    return sort_commissions(result)
 
 
 def compute_summary(db: Session, project_id: int, period_start=None, period_end=None) -> dict:
@@ -295,10 +324,9 @@ def compute_report(db: Session, project_id: int, period_start: date | None, peri
     )
 
     today = date.today()
-    week_start = today - timedelta(days=today.weekday())
-    last_week_end = week_start - timedelta(days=1)
-    last_week_start = last_week_end - timedelta(days=6)
-    week_current = compute_summary(db, project_id, week_start, today)
+    week_start, week_end = operational_week_range(today)
+    last_week_start, last_week_end = previous_operational_week(week_start, week_end)
+    week_current = compute_summary(db, project_id, week_start, week_end)
     week_previous = compute_summary(db, project_id, last_week_start, last_week_end)
 
     comparison = {
@@ -314,7 +342,7 @@ def compute_report(db: Session, project_id: int, period_start: date | None, peri
         "expenses_pct": pct_change(week_current["total_expenses"], week_previous["total_expenses"]),
         "profit_pct": pct_change(week_current["balance"], week_previous["balance"]),
         "current_week_start": week_start.isoformat(),
-        "current_week_end": today.isoformat(),
+        "current_week_end": week_end.isoformat(),
         "previous_week_start": last_week_start.isoformat(),
         "previous_week_end": last_week_end.isoformat(),
     }

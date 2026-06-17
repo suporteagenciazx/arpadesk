@@ -284,9 +284,44 @@ def sample_context() -> dict[str, Any]:
     }
 
 
+def _send_sale_telegram(
+    telegram,
+    chat_id: str,
+    template: str,
+    context: dict,
+    attach_cp: bool,
+    sale,
+) -> None:
+    from app.services.storage import StorageError, download_object, object_filename
+    from app.services.telegram import TelegramError, send_telegram_notification
+
+    text = render_template(template, context).strip()
+    if not text:
+        return
+
+    file_bytes = None
+    filename = None
+    if attach_cp and sale.cp_attachment_url:
+        try:
+            file_bytes, _ = download_object(sale.cp_attachment_url)
+            filename = object_filename(sale.cp_attachment_url)
+        except StorageError:
+            file_bytes = None
+
+    try:
+        send_telegram_notification(
+            telegram.bot_token,
+            chat_id,
+            text,
+            file_bytes=file_bytes,
+            filename=filename,
+        )
+    except TelegramError:
+        pass
+
+
 def notify_sale_on_ok(db: Session, sale_id: int, project_id: int) -> None:
     from app.models import SaleStatus, TelegramSettings
-    from app.services.telegram import TelegramError, send_telegram_message
 
     sale = (
         db.query(Sale)
@@ -303,7 +338,7 @@ def notify_sale_on_ok(db: Session, sale_id: int, project_id: int) -> None:
         return
 
     telegram = db.get(TelegramSettings, 1)
-    if not telegram or not telegram.bot_token:
+    if not telegram or not telegram.bot_token or not telegram.notify_on_confirmation:
         return
     chat_id = telegram.confirmation_chat_id or telegram.chat_id
     if not chat_id:
@@ -315,19 +350,18 @@ def notify_sale_on_ok(db: Session, sale_id: int, project_id: int) -> None:
         or DEFAULT_CONFIRMATION_TEMPLATE
     )
     context = build_sale_context(db, sale, project)
-    text = render_template(template, context).strip()
-    if not text:
-        return
-
-    try:
-        send_telegram_message(telegram.bot_token, chat_id, text)
-    except TelegramError:
-        pass
+    _send_sale_telegram(
+        telegram,
+        chat_id,
+        template,
+        context,
+        bool(telegram.attach_cp_on_confirmation),
+        sale,
+    )
 
 
 def notify_sale_registration(db: Session, sale_id: int, project_id: int) -> None:
     from app.models import TelegramSettings
-    from app.services.telegram import TelegramError, send_telegram_message
 
     telegram = db.get(TelegramSettings, 1)
     if not telegram or not telegram.notify_on_registration:
@@ -350,14 +384,14 @@ def notify_sale_registration(db: Session, sale_id: int, project_id: int) -> None
 
     template = telegram.registration_template or DEFAULT_REGISTRATION_TEMPLATE
     context = build_sale_context(db, sale, project)
-    text = render_template(template, context).strip()
-    if not text:
-        return
-
-    try:
-        send_telegram_message(telegram.bot_token, chat_id, text)
-    except TelegramError:
-        pass
+    _send_sale_telegram(
+        telegram,
+        chat_id,
+        template,
+        context,
+        bool(telegram.attach_cp_on_registration),
+        sale,
+    )
 
 
 def notify_sale_event(db: Session, sale_id: int, project_id: int) -> None:

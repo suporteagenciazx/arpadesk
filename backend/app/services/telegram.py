@@ -105,6 +105,67 @@ def send_telegram_message(bot_token: str, chat_id: str, text: str) -> dict:
     raise TelegramError(_friendly_error(last_description))
 
 
+def send_telegram_document(
+    bot_token: str,
+    chat_id: str,
+    file_bytes: bytes,
+    filename: str,
+    caption: str | None = None,
+) -> dict:
+    token = bot_token.strip()
+    candidates = chat_id_candidates(chat_id)
+    if not candidates:
+        raise TelegramError("Chat ID não informado")
+
+    last_description = ""
+    url = f"https://api.telegram.org/bot{token}/sendDocument"
+
+    for candidate in candidates:
+        data: dict = {"chat_id": _coerce_chat_id(candidate)}
+        if caption:
+            data["caption"] = caption[:1024]
+            data["disable_web_page_preview"] = True
+        files = {"document": (filename, file_bytes)}
+        try:
+            with httpx.Client(timeout=60.0) as client:
+                response = client.post(url, data=data, files=files)
+                result = response.json()
+        except httpx.RequestError as exc:
+            raise TelegramError(f"Falha de conexão com Telegram: {exc}") from exc
+
+        if response.is_success and result.get("ok"):
+            return result
+
+        params = result.get("parameters") if isinstance(result, dict) else None
+        migrate_to = params.get("migrate_to_chat_id") if params else None
+        if migrate_to:
+            data["chat_id"] = migrate_to
+            try:
+                with httpx.Client(timeout=60.0) as client:
+                    response = client.post(url, data=data, files=files)
+                    result = response.json()
+            except httpx.RequestError as exc:
+                raise TelegramError(f"Falha de conexão com Telegram: {exc}") from exc
+            if response.is_success and result.get("ok"):
+                return result
+
+        last_description = result.get("description") if isinstance(result, dict) else response.text
+
+    raise TelegramError(_friendly_error(last_description))
+
+
+def send_telegram_notification(
+    bot_token: str,
+    chat_id: str,
+    text: str,
+    file_bytes: bytes | None = None,
+    filename: str | None = None,
+) -> dict:
+    if file_bytes and filename:
+        return send_telegram_document(bot_token, chat_id, file_bytes, filename, caption=text)
+    return send_telegram_message(bot_token, chat_id, text)
+
+
 def resolve_chat_id(bot_token: str, chat_id: str) -> str:
     """Valida e resolve o chat ID (inclui migração para supergrupo)."""
     token = bot_token.strip()

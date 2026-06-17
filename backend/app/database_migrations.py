@@ -26,6 +26,23 @@ def run_migrations() -> None:
         "ALTER TABLE telegram_settings ADD COLUMN IF NOT EXISTS registration_send_mode telegramsendmode DEFAULT 'group'",
         "ALTER TABLE telegram_settings ADD COLUMN IF NOT EXISTS confirmation_send_mode telegramsendmode DEFAULT 'group'",
         "ALTER TABLE payments ADD COLUMN IF NOT EXISTS adjustment_amount NUMERIC(12, 2) DEFAULT 0",
+        "ALTER TABLE telegram_settings ADD COLUMN IF NOT EXISTS attach_cp_on_registration BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE telegram_settings ADD COLUMN IF NOT EXISTS attach_cp_on_confirmation BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE telegram_settings ADD COLUMN IF NOT EXISTS notify_on_confirmation BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE project_payment_settings ADD COLUMN IF NOT EXISTS default_fine_amount NUMERIC(12, 2) DEFAULT 0",
+        "ALTER TABLE project_payment_settings ADD COLUMN IF NOT EXISTS default_fine_notes TEXT",
+        """CREATE TABLE IF NOT EXISTS period_fines (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            participant_id INTEGER NOT NULL REFERENCES users(id),
+            period_start DATE NOT NULL,
+            period_end DATE NOT NULL,
+            amount NUMERIC(12, 2) NOT NULL,
+            notes TEXT,
+            created_by_id INTEGER REFERENCES users(id),
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            CONSTRAINT uq_period_fine UNIQUE (project_id, participant_id, period_start, period_end)
+        )""",
     ]
     with engine.begin() as conn:
         for stmt in statements:

@@ -51,13 +51,19 @@ export default function Relatorio() {
           periodEnd={filter.periodEnd}
           onPeriodStartChange={filter.setPeriodStart}
           onPeriodEndChange={filter.setPeriodEnd}
-          onApplyCustom={(e) => {
-            e.preventDefault();
-            load(filter.periodStart, filter.periodEnd);
-          }}
-        />
+        onApplyCustom={(e) => {
+          e.preventDefault();
+          load(filter.periodStart, filter.periodEnd);
+        }}
+        showWeekNav={filter.showWeekNav}
+        weekInfo={filter.weekInfo}
+        onWeekShift={(delta) => {
+          const r = filter.shiftWeek(delta);
+          load(r.start, r.end);
+        }}
+      />
 
-        <PeriodHint start={filter.periodStart} end={filter.periodEnd} preset={filter.preset} />
+        <PeriodHint start={filter.periodStart} end={filter.periodEnd} preset={filter.preset} weekInfo={filter.weekInfo} />
 
         {error && <p className="error">{error}</p>}
         {!report ? (

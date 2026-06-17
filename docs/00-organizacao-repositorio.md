@@ -22,8 +22,9 @@ arpadesk/
 ├── frontend/
 │   ├── src/
 │   │   ├── pages/               # telas (Financeiro, Suporte, Config)
-│   │   ├── components/          # UI reutilizável
-│   │   └── lib/api.js           # axios + JWT
+│   │   ├── components/          # UI reutilizável (Layout, DateFilterBar, Modal)
+│   │   ├── hooks/               # useDateFilter, useMediaQuery
+│   │   └── lib/                 # api.js, calendar.js, helpers, constants
 │   └── package.json
 └── docs/                        # esta documentação
 ```
@@ -35,18 +36,19 @@ arpadesk/
 | `backend/app/routers/` | HTTP por módulo: `auth`, `projects`, `sales`, `assets`, `health` |
 | `backend/app/models/` | Entidades SQLAlchemy (PostgreSQL) |
 | `backend/app/schemas/` | Validação entrada/saída API |
-| `backend/app/services/` | Comissões, fechamento de período, cofre de credenciais |
+| `backend/app/services/` | Comissões, fechamento de período, calendário (`calendar.py`), cache, Telegram |
 | `frontend/src/pages/` | Rotas principais da aplicação |
 | `frontend/src/components/` | Componentes compartilhados (layout, tabelas, kanban) |
-| `frontend/src/lib/` | API client, helpers, constantes |
+| `frontend/src/lib/` | API client, **calendário/períodos** (`calendar.js`), helpers, constantes |
 
 ## Regras gerais
 
 - **Backend**: lógica de negócio sempre em `services/`, não nos routers.
 - **Frontend**: chamadas HTTP só via `lib/api.js`.
 - **Segredos**: nunca em código; só via `.env` (local) ou env do Portainer (VPS).
+- **Datas / filtros:** regras de semana operacional só em `lib/calendar.js` (front) e `services/calendar.py` (back) — ver [06-calendario-periodos.md](./06-calendario-periodos.md).
 - **Migrations**: toda alteração de schema passa por Alembic.
-- **Uploads**: comprovantes em volume `uploads_data` (prod) ou `./data/uploads` (dev).
+- **Uploads**: comprovantes no MinIO (bucket `S3_BUCKET`); ver [05-variaveis-ambiente.md](./05-variaveis-ambiente.md).
 
 ## Ambientes
 

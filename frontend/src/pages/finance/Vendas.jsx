@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import api from "../../lib/api";
+import api, { postMultipart } from "../../lib/api";
 import Modal from "../../components/Modal";
 import DateFilterBar from "../../components/DateFilterBar";
 import PeriodHint from "../../components/PeriodHint";
@@ -14,6 +14,13 @@ import {
   fmtDate,
 } from "../../lib/constants";
 import { formatSaleMemberLabel } from "../../lib/helpers";
+import { todayLocalIso, isCashClosingAvailable } from "../../lib/calendar";
+import {
+  canManageDefaultFine,
+  canCashClosing,
+  isPeriodLockedForUser,
+} from "../../lib/permissions";
+import { FineIcon, FloppyDiskIcon } from "../../components/Icons";
 import { maskCnpj, maskPhone, maskMoney, parseMoney, isValidCnpjMasked, isValidPhoneMasked } from "../../lib/masks";
 
 const emptyForm = {
@@ -24,10 +31,43 @@ const emptyForm = {
   doc_type: "LAE",
   doc_custom: "",
   amount: "",
-  sale_date: new Date().toISOString().slice(0, 10),
+  sale_date: todayLocalIso(),
 };
 
 const statusLabel = (value) => SALE_STATUSES.find((s) => s.value === value)?.label || value;
+
+function buildManagerCommissionRows(okSales, members, periodFines) {
+  const byParticipant = {};
+  okSales.forEach((s) => {
+    const id = s.participant_id;
+    byParticipant[id] = (byParticipant[id] || 0) + Number(s.amount || 0);
+  });
+
+  const finesByUser = {};
+  periodFines.forEach((f) => {
+    finesByUser[f.participant_id] = (finesByUser[f.participant_id] || 0) + Number(f.amount || 0);
+  });
+
+  return members
+    .filter((m) => m.user_level === "ilustrativo")
+    .map((m) => {
+      const billing = byParticipant[m.user_id] || 0;
+      const pct = Number(m.commission_percent || 0);
+      const commission = (billing * pct) / 100;
+      const fine = finesByUser[m.user_id] || 0;
+      const net = Math.round((commission - fine) * 100) / 100;
+      return {
+        key: `i-${m.user_id}`,
+        name: m.user_name,
+        billing,
+        percent: pct,
+        commission,
+        fine,
+        net,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+}
 
 export default function Vendas() {
   const { projectId } = useParams();
@@ -37,7 +77,6 @@ export default function Vendas() {
   const [project, setProject] = useState(null);
   const [view, setView] = useState("table");
   const [modalOpen, setModalOpen] = useState(false);
-  const [telegramNotify, setTelegramNotify] = useState(false);
   const [statusConfirm, setStatusConfirm] = useState(null);
   const [detailSale, setDetailSale] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -46,33 +85,41 @@ export default function Vendas() {
   const [error, setError] = useState("");
   const [dragId, setDragId] = useState(null);
   const [form, setForm] = useState(emptyForm);
+  const [cpFile, setCpFile] = useState(null);
   const filter = useDateFilter("atual");
   const [hiddenKanbanCols, setHiddenKanbanCols] = useState(() => new Set());
   const [fineModalOpen, setFineModalOpen] = useState(false);
-  const [defaultFinePercent, setDefaultFinePercent] = useState(0);
+  const [fineParticipantId, setFineParticipantId] = useState("");
+  const [fineAmount, setFineAmount] = useState("");
+  const [fineNotes, setFineNotes] = useState("");
+  const [periodFines, setPeriodFines] = useState([]);
   const [savingFine, setSavingFine] = useState(false);
+  const [cashClosingOpen, setCashClosingOpen] = useState(false);
+
+  const periodLocked = isPeriodLockedForUser(user?.level);
+  const showDateFilters = user?.level === "admin";
+  const canManageFine = canManageDefaultFine(user?.level);
+  const canUseCashClosing = canCashClosing(user?.level);
+  const cashClosingAvailable = isCashClosingAvailable();
 
   const load = async (start = filter.periodStart, end = filter.periodEnd) => {
     const params = {};
     if (start) params.period_start = start;
     if (end) params.period_end = end;
-    const [s, m, p] = await Promise.all([
+    const [s, m, p, finesRes] = await Promise.all([
       api.get(`/api/projects/${projectId}/sales`, { params }),
       api.get(`/api/projects/${projectId}/members`),
       api.get(`/api/projects/${projectId}`),
+      api.get(`/api/projects/${projectId}/fines`, { params }).catch(() => ({ data: [] })),
     ]);
     setSales(s.data);
     setMembers(m.data);
     setProject(p.data);
-    setTelegramNotify(Boolean(p.data.settings?.telegram_notify_on_ok));
+    setPeriodFines(finesRes.data || []);
   };
 
   useEffect(() => {
     load().catch((e) => setError(e.response?.data?.detail || "Erro"));
-    api
-      .get(`/api/projects/${projectId}/payment-settings`)
-      .then(({ data }) => setDefaultFinePercent(data?.default_fine_percent || 0))
-      .catch(() => {});
   }, [projectId]);
 
   const toggleKanbanColumn = (colValue) => {
@@ -84,28 +131,37 @@ export default function Vendas() {
     });
   };
 
-  const saveDefaultFine = async (e) => {
+  const openFineModal = () => {
+    setError("");
+    setFineParticipantId("");
+    setFineAmount("");
+    setFineNotes("");
+    setFineModalOpen(true);
+  };
+
+  const saveFine = async (e) => {
     e.preventDefault();
+    if (!fineParticipantId) {
+      setError("Selecione quem receberá a multa");
+      return;
+    }
+    const amount = parseMoney(fineAmount);
+    if (!amount || amount <= 0) {
+      setError("Informe o valor da multa");
+      return;
+    }
     setSavingFine(true);
     setError("");
     try {
-      let existing = null;
-      try {
-        const res = await api.get(`/api/projects/${projectId}/payment-settings`);
-        existing = res.data;
-      } catch {
-        existing = null;
-      }
-      await api.put(`/api/projects/${projectId}/payment-settings`, {
-        payment_type: existing?.payment_type || "pix",
-        pix_key: existing?.pix_key || "",
-        pix_qr: existing?.pix_qr || "",
-        crypto_address: existing?.crypto_address || "",
-        crypto_network: existing?.crypto_network || "",
-        crypto_qr: existing?.crypto_qr || "",
-        default_fine_percent: Number(defaultFinePercent),
+      await api.post(`/api/projects/${projectId}/fines`, {
+        participant_id: Number(fineParticipantId),
+        period_start: filter.periodStart,
+        period_end: filter.periodEnd,
+        amount,
+        notes: fineNotes.trim() || null,
       });
       setFineModalOpen(false);
+      await load();
     } catch (err) {
       setError(err.response?.data?.detail || "Erro ao salvar multa");
     } finally {
@@ -117,20 +173,8 @@ export default function Vendas() {
 
   const openModal = () => {
     setError("");
+    setCpFile(null);
     setModalOpen(true);
-  };
-
-  const toggleTelegramNotify = async () => {
-    const next = !telegramNotify;
-    try {
-      const { data } = await api.patch(`/api/projects/${projectId}/settings`, {
-        telegram_notify_on_ok: next,
-      });
-      setProject(data);
-      setTelegramNotify(next);
-    } catch (err) {
-      setError(err.response?.data?.detail || "Erro ao salvar preferência do Telegram");
-    }
   };
 
   const submit = async (e) => {
@@ -145,14 +189,27 @@ export default function Vendas() {
       return;
     }
     try {
-      await api.post(`/api/projects/${projectId}/sales`, {
-        ...form,
-        participant_id: Number(form.participant_id),
-        amount: parseMoney(form.amount),
-        cp_attachment_url: null,
-      });
+      const hasFile = Boolean(cpFile);
+      const { data: sale } = await api.post(
+        `/api/projects/${projectId}/sales`,
+        {
+          ...form,
+          participant_id: Number(form.participant_id),
+          amount: parseMoney(form.amount),
+          cp_attachment_url: null,
+        },
+        { params: hasFile ? { defer_notify: true } : {} }
+      );
+      if (hasFile) {
+        const fd = new FormData();
+        fd.append("file", cpFile);
+        await postMultipart(`/api/projects/${projectId}/sales/${sale.id}/attachment`, fd, {
+          params: { notify: true },
+        });
+      }
       setModalOpen(false);
-      setForm({ ...emptyForm, sale_date: new Date().toISOString().slice(0, 10) });
+      setCpFile(null);
+      setForm({ ...emptyForm, sale_date: todayLocalIso() });
       load();
     } catch (err) {
       setError(err.response?.data?.detail || "Erro ao salvar");
@@ -196,6 +253,20 @@ export default function Vendas() {
 
   const salesByStatus = (status) => sales.filter((s) => s.status === status);
 
+  const openCpAttachment = async (saleId) => {
+    try {
+      const { data } = await api.get(
+        `/api/projects/${projectId}/sales/${saleId}/attachment/download`,
+        { responseType: "blob" }
+      );
+      const url = URL.createObjectURL(data);
+      window.open(url, "_blank", "noopener,noreferrer");
+      setTimeout(() => URL.revokeObjectURL(url), 120000);
+    } catch (err) {
+      setError(err.response?.data?.detail || "Erro ao abrir comprovante");
+    }
+  };
+
   const openDeleteConfirm = (sale) => {
     setError("");
     setAdminPassword("");
@@ -224,6 +295,19 @@ export default function Vendas() {
 
   const docLabel = (s) => (s.doc_type === "OUTROS" ? s.doc_custom || "OUTROS" : s.doc_type);
 
+  const billingTotal = sales.reduce((sum, s) => sum + Number(s.amount || 0), 0);
+  const okSales = sales.filter((s) => s.status === "ok");
+  const okTotal = okSales.reduce((sum, s) => sum + Number(s.amount || 0), 0);
+  const finesTotal = periodFines.reduce((sum, f) => sum + Number(f.amount || 0), 0);
+  const commissionRows = useMemo(
+    () => buildManagerCommissionRows(okSales, members, periodFines),
+    [okSales, members, periodFines]
+  );
+  const fineTargets = useMemo(
+    () => members.filter((m) => m.user_level !== "admin"),
+    [members]
+  );
+
   return (
     <div>
       <div className="toolbar toolbar-wrap toolbar-spread">
@@ -249,54 +333,75 @@ export default function Vendas() {
               + Nova venda
             </button>
           )}
-          {canChangeSaleStatus && (
-            <>
-              <button
-                type="button"
-                className={`switch ${telegramNotify ? "on" : ""}`}
-                role="switch"
-                aria-checked={telegramNotify}
-                onClick={toggleTelegramNotify}
-                title="Enviar ao Telegram quando status passar para OK"
-              >
-                <span className="switch-thumb" />
-              </button>
-              <span className="switch-caption">Notificar Confirmação no Telegram</span>
-            </>
+          {canUseCashClosing && (
+            <button
+              type="button"
+              className="btn-cash-closing-outline"
+              disabled={!cashClosingAvailable}
+              onClick={() => setCashClosingOpen(true)}
+              title={
+                cashClosingAvailable
+                  ? "Fechamento de caixa da semana"
+                  : "Disponível de segunda a sexta até 20h"
+              }
+            >
+              <FloppyDiskIcon size={15} />
+              Fechamento de caixa
+            </button>
           )}
         </div>
-        {canChangeSaleStatus && (
+        {canManageFine && (
           <button
             type="button"
-            className="btn btn-ghost toolbar-end"
-            onClick={() => setFineModalOpen(true)}
-            title="Multa padrão em pagamentos"
+            className="btn-fine-outline toolbar-end"
+            onClick={openFineModal}
+            title="Registrar multa para um gerente no período"
           >
-            Multa
+            <FineIcon size={15} />
+            Adicionar multa
           </button>
         )}
       </div>
 
-      {!canChangeSaleStatus && user?.level !== "financeiro" && (
-        <p className="hint">Como contador, você pode registrar vendas. Apenas o financeiro altera o status.</p>
-      )}
-
       {error && <p className="error">{error}</p>}
 
-      <DateFilterBar
-        preset={filter.preset}
-        onPresetChange={(id) => filter.applyPreset(id, load)}
-        periodStart={filter.periodStart}
-        periodEnd={filter.periodEnd}
-        onPeriodStartChange={filter.setPeriodStart}
-        onPeriodEndChange={filter.setPeriodEnd}
-        onApplyCustom={(e) => {
-          e.preventDefault();
-          load(filter.periodStart, filter.periodEnd);
-        }}
-      />
-
-      <PeriodHint start={filter.periodStart} end={filter.periodEnd} preset={filter.preset} />
+      {showDateFilters ? (
+        <>
+          <DateFilterBar
+            preset={filter.preset}
+            onPresetChange={(id) => filter.applyPreset(id, load)}
+            periodStart={filter.periodStart}
+            periodEnd={filter.periodEnd}
+            onPeriodStartChange={filter.setPeriodStart}
+            onPeriodEndChange={filter.setPeriodEnd}
+            onApplyCustom={(e) => {
+              e.preventDefault();
+              load(filter.periodStart, filter.periodEnd);
+            }}
+            showWeekNav={filter.showWeekNav}
+            weekInfo={filter.weekInfo}
+            onWeekShift={(delta) => {
+              const r = filter.shiftWeek(delta);
+              load(r.start, r.end);
+            }}
+          />
+          <PeriodHint
+            start={filter.periodStart}
+            end={filter.periodEnd}
+            preset={filter.preset}
+            weekInfo={filter.weekInfo}
+          />
+        </>
+      ) : (
+        periodLocked && (
+          <PeriodHint
+            start={filter.periodStart}
+            end={filter.periodEnd}
+            preset="atual"
+            weekInfo={filter.weekInfo}
+          />
+        )
+      )}
 
       {view === "table" ? (
         <div className="table-wrap">
@@ -530,10 +635,15 @@ export default function Vendas() {
           </label>
           <label className="full">
             Anexar CP
-            <input type="file" disabled className="input-disabled" />
+            <input
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
+              onChange={(e) => setCpFile(e.target.files?.[0] || null)}
+            />
             <span className="hint-inline">
-              Upload em breve (S3). O link do arquivo será salvo na venda quando a integração estiver ativa.
+              PDF ou imagem (máx. 10 MB). O arquivo fica no MinIO; apenas a referência é salva na venda.
             </span>
+            {cpFile && <span className="hint-inline">Selecionado: {cpFile.name}</span>}
           </label>
           <p className="hint full">
             ID de 6 dígitos será gerado automaticamente. Status inicial: Pendente.
@@ -622,13 +732,17 @@ export default function Vendas() {
                 <dt>Status</dt>
                 <dd>{statusLabel(detailSale.status)}</dd>
               </div>
-              {detailSale.cp_attachment_url && (
+              {(detailSale.has_cp_attachment || detailSale.cp_attachment_url) && (
                 <div className="full">
                   <dt>CP anexado</dt>
                   <dd>
-                    <a href={detailSale.cp_attachment_url} target="_blank" rel="noreferrer">
-                      Ver arquivo
-                    </a>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => openCpAttachment(detailSale.id)}
+                    >
+                      Ver comprovante
+                    </button>
                   </dd>
                 </div>
               )}
@@ -688,17 +802,43 @@ export default function Vendas() {
         )}
       </Modal>
 
-      <Modal open={fineModalOpen} title="Multa padrão" onClose={() => setFineModalOpen(false)}>
-        <form onSubmit={saveDefaultFine}>
-          <p className="hint">Percentual aplicado por padrão nos pagamentos de comissão (aba Pagamentos).</p>
+      <Modal open={fineModalOpen} title="Adicionar multa" onClose={() => setFineModalOpen(false)}>
+        <form onSubmit={saveFine}>
+          <p className="hint">
+            A multa será aplicada na coluna Multas da aba Pagamentos para o período atual.
+          </p>
           <label>
-            Multa padrão (%)
+            Gerente (quem receberá a multa)
+            <select
+              value={fineParticipantId}
+              onChange={(e) => setFineParticipantId(e.target.value)}
+              required
+            >
+              <option value="">Selecione...</option>
+              {fineTargets.map((m) => (
+                <option key={m.user_id} value={m.user_id}>
+                  {formatSaleMemberLabel(m)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Valor da multa (R$)
             <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={defaultFinePercent}
-              onChange={(e) => setDefaultFinePercent(e.target.value)}
+              inputMode="decimal"
+              placeholder="0,00"
+              value={fineAmount}
+              onChange={(e) => setFineAmount(maskMoney(e.target.value))}
+              required
+            />
+          </label>
+          <label className="full">
+            Observações
+            <textarea
+              rows={4}
+              placeholder="Motivo, contexto ou quem está cadastrando a multa..."
+              value={fineNotes}
+              onChange={(e) => setFineNotes(e.target.value)}
             />
           </label>
           <div className="form-actions">
@@ -706,10 +846,124 @@ export default function Vendas() {
               Cancelar
             </button>
             <button type="submit" className="btn btn-primary" disabled={savingFine}>
-              {savingFine ? "Salvando..." : "Salvar"}
+              {savingFine ? "Salvando..." : "Confirmar multa"}
             </button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        open={cashClosingOpen}
+        title="Fechamento de caixa"
+        wide
+        onClose={() => setCashClosingOpen(false)}
+      >
+        <div className="cash-closing">
+          <PeriodHint
+            start={filter.periodStart}
+            end={filter.periodEnd}
+            preset="atual"
+            weekInfo={filter.weekInfo}
+          />
+          <div className="cash-closing-total">
+            <span>FATURAMENTO FINAL:</span>
+            <strong>{fmtMoney(billingTotal)}</strong>
+          </div>
+          <p className="hint cash-closing-meta">
+            {sales.length} venda(s) no período · {okSales.length} confirmada(s) (OK): {fmtMoney(okTotal)}
+          </p>
+          {sales.length > 0 ? (
+            <div className="table-wrap cash-closing-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Código</th>
+                    <th>Agente</th>
+                    <th>Valor</th>
+                    <th>Data</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sales.map((s) => (
+                    <tr key={s.id}>
+                      <td>
+                        <code>{s.sale_code}</code>
+                      </td>
+                      <td>{s.participant_name}</td>
+                      <td>{fmtMoney(s.amount)}</td>
+                      <td>{fmtDate(s.sale_date)}</td>
+                      <td>{statusLabel(s.status)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="muted">Nenhuma venda registrada nesta semana.</p>
+          )}
+
+          <div className="cash-closing-section">
+            <h4>Multas</h4>
+            {periodFines.length > 0 ? (
+              <>
+                <div className="table-wrap cash-closing-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Gerente</th>
+                        <th>Qtd.</th>
+                        <th>Valor descontado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {periodFines.map((f) => (
+                        <tr key={f.id}>
+                          <td>{f.participant_name}</td>
+                          <td>1</td>
+                          <td>{fmtMoney(f.amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="cash-closing-fine-total">
+                  Total em multas: {fmtMoney(finesTotal)}
+                </p>
+              </>
+            ) : (
+              <p className="muted">Nenhuma multa registrada no período.</p>
+            )}
+          </div>
+
+          <div className="cash-closing-section">
+            <h4>Comissões</h4>
+            {commissionRows.length > 0 ? (
+              <div className="cash-closing-commissions">
+                {commissionRows.map((row) => (
+                  <div key={row.key} className="cash-closing-commission-row">
+                    <div>
+                      <strong>{row.name}</strong>
+                      <small>
+                        Faturamento: {fmtMoney(row.billing)} ({row.percent}%)
+                        {row.fine > 0 && ` · Multa: ${fmtMoney(row.fine)}`}
+                      </small>
+                    </div>
+                    <strong className={row.net < 0 ? "amount-negative" : ""}>{fmtMoney(row.net)}</strong>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="muted">Nenhum gerente cadastrado no projeto.</p>
+            )}
+          </div>
+
+          <div className="form-actions">
+            <button type="button" className="btn btn-primary" onClick={() => setCashClosingOpen(false)}>
+              Salvar
+            </button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

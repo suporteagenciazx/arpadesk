@@ -1,9 +1,10 @@
 import { fmtDate } from "../lib/constants";
 
-export default function PeriodHint({ start, end, preset }) {
+export default function PeriodHint({ start, end, preset, weekInfo }) {
   if (!start && !end) return null;
   return (
     <p className="hint report-period">
+      {weekInfo?.isOperational && <span className="week-badge">{weekInfo.label} · </span>}
       Período: {fmtDate(start)} — {fmtDate(end)}
       {preset === "atual" && " (semana operacional — segunda a sexta)"}
     </p>

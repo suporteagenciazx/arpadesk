@@ -67,11 +67,14 @@ def _settings_out(row: TelegramSettings) -> TelegramSettingsOut:
         ),
         registration_template=registration,
         notify_on_registration=bool(row.notify_on_registration),
+        attach_cp_on_registration=bool(row.attach_cp_on_registration),
         confirmation_chat_id=conf_chat,
         confirmation_send_mode=(
             row.confirmation_send_mode.value if row.confirmation_send_mode else "group"
         ),
         confirmation_template=confirmation,
+        notify_on_confirmation=bool(row.notify_on_confirmation),
+        attach_cp_on_confirmation=bool(row.attach_cp_on_confirmation),
         has_token=bool(row.bot_token),
     )
 
@@ -119,6 +122,8 @@ def save_registration_settings(
         row.registration_template = data.template
     if data.enabled is not None:
         row.notify_on_registration = data.enabled
+    if data.attach_cp is not None:
+        row.attach_cp_on_registration = data.attach_cp
     db.commit()
     db.refresh(row)
     return _settings_out(row)
@@ -142,6 +147,10 @@ def save_confirmation_settings(
     if data.template is not None:
         row.confirmation_template = data.template
         row.message_template = data.template
+    if data.enabled is not None:
+        row.notify_on_confirmation = data.enabled
+    if data.attach_cp is not None:
+        row.attach_cp_on_confirmation = data.attach_cp
     db.commit()
     db.refresh(row)
     return _settings_out(row)

@@ -8,6 +8,12 @@ SALE_REGISTER_LEVELS = {
     UserLevel.agente,
 }
 PAYMENT_LEVELS = {UserLevel.admin, UserLevel.financeiro}
+FINE_SETTINGS_LEVELS = {
+    UserLevel.admin,
+    UserLevel.financeiro,
+    UserLevel.contador,
+    UserLevel.agente,
+}
 ADMIN_ONLY_LEVELS = {UserLevel.admin}
 
 
@@ -21,6 +27,10 @@ def can_register_sale(user: User) -> bool:
 
 def can_access_payments(user: User) -> bool:
     return user.level in PAYMENT_LEVELS
+
+
+def can_manage_default_fine(user: User) -> bool:
+    return user.level in FINE_SETTINGS_LEVELS
 
 
 def can_access_admin_finance_tabs(user: User) -> bool:

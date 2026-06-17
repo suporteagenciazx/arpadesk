@@ -10,6 +10,7 @@
 | [03-deploy-vps.md](./03-deploy-vps.md) | Deploy na VPS (SSH + Portainer) e diferenças local → produção |
 | [04-manutencao-backup.md](./04-manutencao-backup.md) | Backup PostgreSQL, volumes, updates |
 | [05-variaveis-ambiente.md](./05-variaveis-ambiente.md) | Referência completa de variáveis `.env` |
+| [06-calendario-periodos.md](./06-calendario-periodos.md) | Semana operacional, presets de data e validação |
 | [PLANO-MVP.md](./PLANO-MVP.md) | Plano de produto (financeiro, suporte, kanban, RBAC) |
 
 ## Fluxo recomendado

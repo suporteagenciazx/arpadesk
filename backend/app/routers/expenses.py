@@ -11,6 +11,14 @@ from app.schemas import ExpenseCreate, ExpenseOut, ExpenseUpdate
 router = APIRouter(prefix="/api/projects/{project_id}/expenses", tags=["expenses"])
 
 
+def _invalidate_project_cache(project_id: int) -> None:
+    from app.services.cache import cache_delete_prefix
+
+    cache_delete_prefix(f"summary:{project_id}:")
+    cache_delete_prefix(f"report:{project_id}:")
+    cache_delete_prefix(f"commissions:{project_id}:")
+
+
 def normalize_expense_amount(value: float) -> float:
     return -abs(float(value))
 
@@ -63,6 +71,7 @@ def create_expense(
     )
     db.add(expense)
     db.commit()
+    _invalidate_project_cache(project_id)
     db.refresh(expense)
     return ExpenseOut(
         id=expense.id,
@@ -96,6 +105,7 @@ def update_expense(
     if data.expense_date is not None:
         expense.expense_date = data.expense_date
     db.commit()
+    _invalidate_project_cache(project_id)
     db.refresh(expense)
     return ExpenseOut(
         id=expense.id,
@@ -121,3 +131,4 @@ def delete_expense(
         raise HTTPException(404, "Despesa não encontrada")
     db.delete(expense)
     db.commit()
+    _invalidate_project_cache(project_id)

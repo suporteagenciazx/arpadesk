@@ -1,5 +1,10 @@
-import { useCallback, useState } from "react";
-import { getPresetRange } from "../lib/helpers";
+import { useCallback, useMemo, useState } from "react";
+import {
+  formatWeekInfo,
+  getPresetRange,
+  isOperationalWeekRange,
+  shiftOperationalWeek,
+} from "../lib/calendar";
 
 export function useDateFilter(initialPreset = "atual") {
   const initial = getPresetRange(initialPreset);
@@ -16,6 +21,27 @@ export function useDateFilter(initialPreset = "atual") {
     onRange?.(range.start, range.end);
   }, []);
 
+  const shiftWeek = useCallback(
+    (weeksDelta) => {
+      const range = shiftOperationalWeek(periodStart, periodEnd, weeksDelta);
+      setPeriodStart(range.start);
+      setPeriodEnd(range.end);
+      if (preset === "atual") setPreset("custom");
+      return range;
+    },
+    [periodStart, periodEnd, preset]
+  );
+
+  const weekInfo = useMemo(
+    () => formatWeekInfo(periodStart, periodEnd),
+    [periodStart, periodEnd]
+  );
+
+  const showWeekNav = useMemo(
+    () => isOperationalWeekRange(periodStart, periodEnd),
+    [periodStart, periodEnd]
+  );
+
   const params = () => {
     const p = {};
     if (periodStart) p.period_start = periodStart;
@@ -30,6 +56,9 @@ export function useDateFilter(initialPreset = "atual") {
     setPeriodStart,
     setPeriodEnd,
     applyPreset,
+    shiftWeek,
+    weekInfo,
+    showWeekNav,
     params,
   };
 }

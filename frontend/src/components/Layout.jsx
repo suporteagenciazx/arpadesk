@@ -3,6 +3,9 @@ import { Navigate, Link, useLocation, useNavigate } from "react-router-dom";
 import PageTransition from "./PageTransition";
 import {
   FinanceIcon,
+  LogOutIcon,
+  MenuIcon,
+  PanelLeftIcon,
   SettingsIcon,
   SupportIcon,
   TelegramIcon,
@@ -11,12 +14,15 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { useProject } from "../context/ProjectContext";
 import { useTheme } from "../context/ThemeContext";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 
-function NavLabel({ icon: Icon, children }) {
+const SIDEBAR_KEY = "arpadesk_sidebar_collapsed";
+
+function NavLabel({ icon: Icon, children, collapsed }) {
   return (
-    <span className="nav-item-inner">
+    <span className="nav-item-inner" title={collapsed ? children : undefined}>
       <Icon size={18} />
-      <span>{children}</span>
+      <span className="nav-item-label">{children}</span>
     </span>
   );
 }
@@ -27,7 +33,17 @@ export default function Layout() {
   const { theme, toggleTheme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
+  const isMobile = useMediaQuery("(max-width: 768px)");
+
   const [configOpen, setConfigOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
 
   const financeActive =
     location.pathname === "/financeiro" || location.pathname.includes("/financeiro");
@@ -36,9 +52,29 @@ export default function Layout() {
     isAdmin &&
     (location.pathname === "/config/usuarios" || location.pathname === "/config/telegram");
 
+  const iconOnly = collapsed && !isMobile;
+
   useEffect(() => {
     if (configActive) setConfigOpen(true);
   }, [configActive]);
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (isMobile) setCollapsed(false);
+  }, [isMobile]);
+
+  useEffect(() => {
+    if (!isMobile) {
+      try {
+        localStorage.setItem(SIDEBAR_KEY, collapsed ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [collapsed, isMobile]);
 
   if (loading) return <div className="center-page page-transition">Carregando...</div>;
   if (!user) return <Navigate to="/login" replace />;
@@ -49,16 +85,75 @@ export default function Layout() {
   };
 
   const toggleConfig = () => {
+    if (iconOnly) {
+      navigate("/config/usuarios");
+      return;
+    }
     setConfigOpen((o) => !o);
     if (!configOpen && !configActive) {
       navigate("/config/usuarios");
     }
   };
 
+  const toggleCollapsed = () => setCollapsed((v) => !v);
+
+  const layoutClass = [
+    "layout",
+    iconOnly ? "layout--sidebar-collapsed" : "",
+    mobileOpen ? "layout--mobile-nav-open" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const sidebarClass = [
+    "sidebar",
+    iconOnly ? "sidebar--collapsed" : "",
+    mobileOpen ? "sidebar--open" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <div className="layout">
-      <aside className="sidebar">
-        <div className="brand">Arpadesk</div>
+    <div className={layoutClass}>
+      {isMobile && mobileOpen && (
+        <button
+          type="button"
+          className="sidebar-backdrop"
+          aria-label="Fechar menu"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      <aside className={sidebarClass}>
+        <div className="sidebar-header">
+          <div className="brand">
+            <span className="brand-mark" aria-hidden>
+              A
+            </span>
+            <span className="brand-text">Arpadesk</span>
+          </div>
+          {!isMobile && (
+            <button
+              type="button"
+              className={`sidebar-collapse-btn ${collapsed ? "sidebar-collapse-btn--flipped" : ""}`}
+              onClick={toggleCollapsed}
+              title={collapsed ? "Expandir menu" : "Recolher menu"}
+              aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
+            >
+              <PanelLeftIcon size={18} />
+            </button>
+          )}
+          {isMobile && (
+            <button
+              type="button"
+              className="sidebar-close-btn"
+              onClick={() => setMobileOpen(false)}
+              aria-label="Fechar menu"
+            >
+              ×
+            </button>
+          )}
+        </div>
 
         <nav>
           <Link
@@ -66,43 +161,75 @@ export default function Layout() {
             className={`nav-item ${financeActive ? "active" : ""}`}
             onClick={goFinanceiro}
           >
-            <NavLabel icon={FinanceIcon}>Financeiro</NavLabel>
+            <NavLabel icon={FinanceIcon} collapsed={iconOnly}>
+              Financeiro
+            </NavLabel>
           </Link>
 
           {isAdmin && (
             <Link to="/suporte" className={`nav-item ${suporteActive ? "active" : ""}`}>
-              <NavLabel icon={SupportIcon}>Suporte</NavLabel>
+              <NavLabel icon={SupportIcon} collapsed={iconOnly}>
+                Suporte
+              </NavLabel>
             </Link>
           )}
 
-          {isAdmin && (
-            <div className="nav-group">
-              <button
-                type="button"
-                className={`nav-item nav-toggle ${configActive ? "active" : ""}`}
-                onClick={toggleConfig}
-                aria-expanded={configOpen}
+          {isAdmin && iconOnly ? (
+            <>
+              <Link
+                to="/config/usuarios"
+                className={`nav-item ${location.pathname === "/config/usuarios" ? "active" : ""}`}
               >
-                <NavLabel icon={SettingsIcon}>Configurações</NavLabel>
-                <span className="nav-chevron">{configOpen ? "▾" : "▸"}</span>
-              </button>
-              {configOpen && (
-                <div className="nav-submenu">
-                  <Link
-                    to="/config/usuarios"
-                    className={`nav-item nav-sub ${location.pathname === "/config/usuarios" ? "active" : ""}`}
-                  >
-                    <NavLabel icon={UsersIcon}>Usuários</NavLabel>
-                  </Link>
-                  <Link
-                    to="/config/telegram"
-                    className={`nav-item nav-sub ${location.pathname === "/config/telegram" ? "active" : ""}`}
-                  >
-                    <NavLabel icon={TelegramIcon}>Telegram</NavLabel>
-                  </Link>
-                </div>
-              )}
-            </div>
+                <NavLabel icon={UsersIcon} collapsed>
+                  Usuários
+                </NavLabel>
+              </Link>
+              <Link
+                to="/config/telegram"
+                className={`nav-item ${location.pathname === "/config/telegram" ? "active" : ""}`}
+              >
+                <NavLabel icon={TelegramIcon} collapsed>
+                  Telegram
+                </NavLabel>
+              </Link>
+            </>
+          ) : (
+            isAdmin && (
+              <div className="nav-group">
+                <button
+                  type="button"
+                  className={`nav-item nav-toggle ${configActive ? "active" : ""}`}
+                  onClick={toggleConfig}
+                  aria-expanded={configOpen}
+                  title={iconOnly ? "Configurações" : undefined}
+                >
+                  <NavLabel icon={SettingsIcon} collapsed={iconOnly}>
+                    Configurações
+                  </NavLabel>
+                  <span className="nav-chevron">{configOpen ? "▾" : "▸"}</span>
+                </button>
+                {configOpen && (
+                  <div className="nav-submenu">
+                    <Link
+                      to="/config/usuarios"
+                      className={`nav-item nav-sub ${location.pathname === "/config/usuarios" ? "active" : ""}`}
+                    >
+                      <NavLabel icon={UsersIcon} collapsed={iconOnly}>
+                        Usuários
+                      </NavLabel>
+                    </Link>
+                    <Link
+                      to="/config/telegram"
+                      className={`nav-item nav-sub ${location.pathname === "/config/telegram" ? "active" : ""}`}
+                    >
+                      <NavLabel icon={TelegramIcon} collapsed={iconOnly}>
+                        Telegram
+                      </NavLabel>
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )
           )}
         </nav>
 
@@ -115,17 +242,37 @@ export default function Layout() {
               onClick={toggleTheme}
               title={theme === "light" ? "Modo escuro" : "Modo claro"}
             >
-              {theme === "light" ? "◐ Escuro" : "◑ Claro"}
+              <span className="footer-icon" aria-hidden>
+                {theme === "light" ? "◐" : "◑"}
+              </span>
+              <span className="footer-btn-label">{theme === "light" ? "Escuro" : "Claro"}</span>
             </button>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={logout}>
-              Sair
+            <button type="button" className="btn btn-ghost btn-sm" onClick={logout} title="Sair">
+              <LogOutIcon size={16} className="footer-icon-svg" />
+              <span className="footer-btn-label">Sair</span>
             </button>
           </div>
         </div>
       </aside>
-      <main className="content">
-        <PageTransition />
-      </main>
+
+      <div className="layout-main">
+        {isMobile && (
+          <header className="mobile-topbar">
+            <button
+              type="button"
+              className="mobile-menu-btn"
+              onClick={() => setMobileOpen(true)}
+              aria-label="Abrir menu"
+            >
+              <MenuIcon size={22} />
+            </button>
+            <span className="mobile-topbar-title">Arpadesk</span>
+          </header>
+        )}
+        <main className="content">
+          <PageTransition />
+        </main>
+      </div>
     </div>
   );
 }
