@@ -2,10 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import api, { postMultipart } from "../../lib/api";
 import Modal from "../../components/Modal";
-import DateFilterBar from "../../components/DateFilterBar";
-import PeriodHint from "../../components/PeriodHint";
 import { useAuth } from "../../context/AuthContext";
-import { useDateFilter } from "../../hooks/useDateFilter";
+import { useFinancePeriod } from "../../context/FinancePeriodContext";
 import {
   SALE_VERSIONS,
   SALE_STATUSES,
@@ -86,7 +84,7 @@ export default function Vendas() {
   const [dragId, setDragId] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [cpFile, setCpFile] = useState(null);
-  const filter = useDateFilter("atual");
+  const period = useFinancePeriod();
   const [hiddenKanbanCols, setHiddenKanbanCols] = useState(() => new Set());
   const [fineModalOpen, setFineModalOpen] = useState(false);
   const [fineParticipantId, setFineParticipantId] = useState("");
@@ -97,15 +95,25 @@ export default function Vendas() {
   const [cashClosingOpen, setCashClosingOpen] = useState(false);
 
   const periodLocked = isPeriodLockedForUser(user?.level);
-  const showDateFilters = user?.level === "admin";
+  const showDateFilters = false;
   const canManageFine = canManageDefaultFine(user?.level);
   const canUseCashClosing = canCashClosing(user?.level);
   const cashClosingAvailable = isCashClosingAvailable();
 
-  const load = async (start = filter.periodStart, end = filter.periodEnd) => {
-    const params = {};
-    if (start) params.period_start = start;
-    if (end) params.period_end = end;
+  const load = async () => {
+    if (period.hasDraft && period.importDraft?.preview?.sales) {
+      setSales(period.importDraft.preview.sales);
+      const [m, p, finesRes] = await Promise.all([
+        api.get(`/api/projects/${projectId}/members`),
+        api.get(`/api/projects/${projectId}`),
+        api.get(`/api/projects/${projectId}/fines`, { params: period.params() }).catch(() => ({ data: [] })),
+      ]);
+      setMembers(m.data);
+      setProject(p.data);
+      setPeriodFines(finesRes.data || []);
+      return;
+    }
+    const params = period.params();
     const [s, m, p, finesRes] = await Promise.all([
       api.get(`/api/projects/${projectId}/sales`, { params }),
       api.get(`/api/projects/${projectId}/members`),
@@ -120,7 +128,7 @@ export default function Vendas() {
 
   useEffect(() => {
     load().catch((e) => setError(e.response?.data?.detail || "Erro"));
-  }, [projectId]);
+  }, [projectId, period.periodStart, period.periodEnd, period.reloadToken, period.importDraft]);
 
   const toggleKanbanColumn = (colValue) => {
     setHiddenKanbanCols((prev) => {
@@ -155,8 +163,8 @@ export default function Vendas() {
     try {
       await api.post(`/api/projects/${projectId}/fines`, {
         participant_id: Number(fineParticipantId),
-        period_start: filter.periodStart,
-        period_end: filter.periodEnd,
+        period_start: period.periodStart,
+        period_end: period.periodEnd,
         amount,
         notes: fineNotes.trim() || null,
       });
@@ -170,6 +178,7 @@ export default function Vendas() {
   };
 
   const docTypes = project?.settings?.doc_types || ["LAE", "DVEGO", "DECORE", "LAUDO", "OUTROS"];
+  const telegramNotify = Boolean(project?.settings?.telegram_notify_on_ok);
 
   const openModal = () => {
     setError("");
@@ -229,13 +238,17 @@ export default function Vendas() {
 
   const confirmStatusChange = async () => {
     if (!statusConfirm) return;
+    const { saleId, to } = statusConfirm;
     setError("");
     try {
-      await api.patch(`/api/projects/${projectId}/sales/${statusConfirm.saleId}`, {
-        status: statusConfirm.to,
+      const { data: updated } = await api.patch(`/api/projects/${projectId}/sales/${saleId}`, {
+        status: to,
       });
       setStatusConfirm(null);
-      load();
+      setSales((prev) =>
+        prev.map((s) => (s.id === saleId ? { ...s, status: updated.status ?? to } : s))
+      );
+      await load();
     } catch (err) {
       setError(err.response?.data?.detail || "Erro ao atualizar status");
       setStatusConfirm(null);
@@ -365,42 +378,12 @@ export default function Vendas() {
 
       {error && <p className="error">{error}</p>}
 
-      {showDateFilters ? (
-        <>
-          <DateFilterBar
-            preset={filter.preset}
-            onPresetChange={(id) => filter.applyPreset(id, load)}
-            periodStart={filter.periodStart}
-            periodEnd={filter.periodEnd}
-            onPeriodStartChange={filter.setPeriodStart}
-            onPeriodEndChange={filter.setPeriodEnd}
-            onApplyCustom={(e) => {
-              e.preventDefault();
-              load(filter.periodStart, filter.periodEnd);
-            }}
-            showWeekNav={filter.showWeekNav}
-            weekInfo={filter.weekInfo}
-            onWeekShift={(delta) => {
-              const r = filter.shiftWeek(delta);
-              load(r.start, r.end);
-            }}
-          />
-          <PeriodHint
-            start={filter.periodStart}
-            end={filter.periodEnd}
-            preset={filter.preset}
-            weekInfo={filter.weekInfo}
-          />
-        </>
-      ) : (
-        periodLocked && (
-          <PeriodHint
-            start={filter.periodStart}
-            end={filter.periodEnd}
-            preset="atual"
-            weekInfo={filter.weekInfo}
-          />
-        )
+      {periodLocked && (
+        <p className="hint">Período travado em «Atual» para seu perfil.</p>
+      )}
+
+      {period.hasDraft && (
+        <p className="hint">Pré-visualização da importação — edição bloqueada até salvar o relatório.</p>
       )}
 
       {view === "table" ? (
@@ -434,7 +417,10 @@ export default function Vendas() {
                       <select
                         className="select-sm"
                         value={s.status}
-                        onChange={(e) => requestStatusChange(s.id, e.target.value)}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          if (next !== s.status) requestStatusChange(s.id, next);
+                        }}
                       >
                         {SALE_STATUSES.map((st) => (
                           <option key={st.value} value={st.value}>
@@ -859,12 +845,10 @@ export default function Vendas() {
         onClose={() => setCashClosingOpen(false)}
       >
         <div className="cash-closing">
-          <PeriodHint
-            start={filter.periodStart}
-            end={filter.periodEnd}
-            preset="atual"
-            weekInfo={filter.weekInfo}
-          />
+          <p className="hint">
+            Período: {period.periodStart} — {period.periodEnd}
+            {period.weekInfo?.label ? ` · ${period.weekInfo.label}` : ""}
+          </p>
           <div className="cash-closing-total">
             <span>FATURAMENTO FINAL:</span>
             <strong>{fmtMoney(billingTotal)}</strong>

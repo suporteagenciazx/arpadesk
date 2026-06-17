@@ -69,6 +69,34 @@ Multas registradas em **Vendas → Adicionar multa** são salvas em `period_fine
 
 Uma multa por gerente por período (novo registro substitui o anterior).
 
+## Importar relatório (PDF)
+
+Na aba **Relatório**, botão **Importar** ao lado da navegação de semana (`Semana N/AAAA`).
+
+| Etapa | Detalhe |
+|-------|---------|
+| UI | Modal com intervalo de datas + upload PDF |
+| API | `POST /api/projects/{id}/report-imports` (multipart) |
+| Storage | MinIO em `projects/{id}/reports/{inicio}_{fim}/` |
+| Extração | `backend/app/services/report_pdf.py` — template **agencia_fluxo_caixa** |
+| Fixture de teste | `backend/tests/fixtures/agencia2_sample.pdf` |
+
+### Seções do PDF (Fluxo de Caixa)
+
+| Página | Seção | Dados extraídos |
+|--------|--------|-----------------|
+| 1 | FATURAMENTO | Vendas por ATD, QTD, total R$, comissões agentes |
+| 2 | COMISSÕES | ATENDENTE, CONTADOR, FINANCEIRO, SÓCIO |
+| 3 | DESPESAS | Linhas + total |
+| 4 | SALDO | Vendas, comissões bruto, lucro bruto/líquido |
+| 5 | PAGAMENTOS | ATD/FIN/CT com ajustes e multas |
+
+Validar extração:
+
+```powershell
+docker compose -f docker-compose.dev.yml exec backend python -c "from pathlib import Path; from app.services.report_pdf import extract_report_from_pdf; d=extract_report_from_pdf(Path('/app/tests/fixtures/agencia2_sample.pdf').read_bytes()); print(d['fields'])"
+```
+
 ## API — parâmetros de período
 
 Endpoints que aceitam filtro:

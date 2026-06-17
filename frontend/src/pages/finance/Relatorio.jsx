@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import api from "../../lib/api";
-import DateFilterBar from "../../components/DateFilterBar";
-import PeriodHint from "../../components/PeriodHint";
 import FinanceTabGuard from "../../components/FinanceTabGuard";
-import { useDateFilter } from "../../hooks/useDateFilter";
-import { fmtMoney, fmtDate } from "../../lib/constants";
+import {
+  useFinancePeriod,
+  useImportPreviewData,
+} from "../../context/FinancePeriodContext";
+import { fmtMoney, fmtDateTime } from "../../lib/constants";
 import { formatPctChange } from "../../lib/masks";
 
 function PctBadge({ value, label }) {
@@ -23,100 +24,92 @@ function PctBadge({ value, label }) {
 
 export default function Relatorio() {
   const { projectId } = useParams();
+  const period = useFinancePeriod();
   const [report, setReport] = useState(null);
+  const [logs, setLogs] = useState([]);
   const [error, setError] = useState("");
-  const filter = useDateFilter("atual");
 
-  const load = (start = filter.periodStart, end = filter.periodEnd) => {
-    const params = {};
-    if (start) params.period_start = start;
-    if (end) params.period_end = end;
+  const load = () => {
+    if (period.hasDraft && period.importDraft?.preview?.report) {
+      setReport(period.importDraft.preview.report);
+      setLogs([]);
+      return;
+    }
+    const params = period.params();
     api
       .get(`/api/projects/${projectId}/report`, { params })
       .then(({ data }) => setReport(data))
       .catch((e) => setError(e.response?.data?.detail || "Erro ao carregar relatório"));
+
+    api
+      .get(`/api/projects/${projectId}/report-imports/logs`, { params })
+      .then(({ data }) => setLogs(data || []))
+      .catch(() => setLogs([]));
   };
 
   useEffect(() => {
     load();
-  }, [projectId]);
+  }, [projectId, period.periodStart, period.periodEnd, period.reloadToken, period.importDraft]);
+
+  const displayReport = useImportPreviewData(report, "report") || report;
 
   return (
     <FinanceTabGuard tab="relatorio">
       <div>
-        <DateFilterBar
-          preset={filter.preset}
-          onPresetChange={(id) => filter.applyPreset(id, load)}
-          periodStart={filter.periodStart}
-          periodEnd={filter.periodEnd}
-          onPeriodStartChange={filter.setPeriodStart}
-          onPeriodEndChange={filter.setPeriodEnd}
-        onApplyCustom={(e) => {
-          e.preventDefault();
-          load(filter.periodStart, filter.periodEnd);
-        }}
-        showWeekNav={filter.showWeekNav}
-        weekInfo={filter.weekInfo}
-        onWeekShift={(delta) => {
-          const r = filter.shiftWeek(delta);
-          load(r.start, r.end);
-        }}
-      />
-
-        <PeriodHint start={filter.periodStart} end={filter.periodEnd} preset={filter.preset} weekInfo={filter.weekInfo} />
-
         {error && <p className="error">{error}</p>}
-        {!report ? (
+        {!displayReport ? (
           <p className="muted">Carregando relatório...</p>
         ) : (
           <>
             <div className="stats-grid">
               <div className="stat-card">
                 <span>Vendas (OK)</span>
-                <strong>{fmtMoney(report.total_sales)}</strong>
-                <small>{report.ok_sales_count} vendas</small>
+                <strong>{fmtMoney(displayReport.total_sales)}</strong>
+                <small>{displayReport.ok_sales_count} vendas</small>
               </div>
               <div className="stat-card">
                 <span>Ticket médio</span>
-                <strong>{fmtMoney(report.avg_ticket)}</strong>
+                <strong>{fmtMoney(displayReport.avg_ticket)}</strong>
               </div>
               <div className="stat-card">
                 <span>Despesas</span>
-                <strong className="negative">{fmtMoney(report.total_expenses)}</strong>
+                <strong className="negative">{fmtMoney(displayReport.total_expenses)}</strong>
               </div>
               <div className="stat-card highlight">
                 <span>Lucro</span>
-                <strong>{fmtMoney(report.profit)}</strong>
+                <strong>{fmtMoney(displayReport.profit)}</strong>
               </div>
             </div>
 
-            <div className="stats-grid">
-              <PctBadge value={report.comparison?.sales_pct} label="Vendas" />
-              <PctBadge value={report.comparison?.expenses_pct} label="Despesas" />
-              <PctBadge value={report.comparison?.profit_pct} label="Lucro" />
-              <div className="stat-card">
-                <span>vs semana passada (lucro)</span>
-                <strong>{formatPctChange(report.week_comparison?.profit_pct)}</strong>
+            {displayReport.comparison && (
+              <div className="stats-grid">
+                <PctBadge value={displayReport.comparison?.sales_pct} label="Vendas" />
+                <PctBadge value={displayReport.comparison?.expenses_pct} label="Despesas" />
+                <PctBadge value={displayReport.comparison?.profit_pct} label="Lucro" />
+                <div className="stat-card">
+                  <span>vs semana passada (lucro)</span>
+                  <strong>{formatPctChange(displayReport.week_comparison?.profit_pct)}</strong>
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="report-insights">
               <div className="card">
                 <h3>Destaques</h3>
                 <ul className="insight-list">
                   <li>
-                    <strong>Vendas bloqueadas:</strong> {report.blocked_sales_count}
+                    <strong>Vendas bloqueadas:</strong> {displayReport.blocked_sales_count}
                   </li>
                   <li>
-                    <strong>Em análise:</strong> {report.analysis_sales_count}
+                    <strong>Em análise:</strong> {displayReport.analysis_sales_count}
                   </li>
                   <li>
-                    <strong>Pendentes:</strong> {report.pending_sales_count}
+                    <strong>Pendentes:</strong> {displayReport.pending_sales_count}
                   </li>
-                  {report.highest_sale && (
+                  {displayReport.highest_sale && (
                     <li>
-                      <strong>Maior venda:</strong> {report.highest_sale.sale_code} —{" "}
-                      {fmtMoney(report.highest_sale.amount)} ({report.highest_sale.participant_name})
+                      <strong>Maior venda:</strong> {displayReport.highest_sale.sale_code} —{" "}
+                      {fmtMoney(displayReport.highest_sale.amount)} ({displayReport.highest_sale.participant_name})
                     </li>
                   )}
                 </ul>
@@ -134,14 +127,14 @@ export default function Relatorio() {
                   </tr>
                 </thead>
                 <tbody>
-                  {report.sales_by_manager.map((m) => (
-                    <tr key={m.participant_id}>
+                  {(displayReport.sales_by_manager || []).map((m) => (
+                    <tr key={m.participant_id || m.participant_name}>
                       <td>{m.participant_name}</td>
                       <td>{m.sales_count}</td>
                       <td>{fmtMoney(m.total_amount)}</td>
                     </tr>
                   ))}
-                  {report.sales_by_manager.length === 0 && (
+                  {(displayReport.sales_by_manager || []).length === 0 && (
                     <tr>
                       <td colSpan={3} className="muted center">
                         Nenhuma venda OK no período.
@@ -150,6 +143,23 @@ export default function Relatorio() {
                   )}
                 </tbody>
               </table>
+            </div>
+
+            <div className="card report-import-log">
+              <h3>Registro de salvamentos</h3>
+              {logs.length === 0 ? (
+                <p className="muted">Nenhum salvamento registrado para este período.</p>
+              ) : (
+                <ul className="insight-list">
+                  {logs.map((log) => (
+                    <li key={log.id}>
+                      <strong>{fmtDateTime(log.saved_at)}</strong>
+                      {log.original_filename && ` — ${log.original_filename}`}
+                      {log.created_by_name && ` (${log.created_by_name})`}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </>
         )}

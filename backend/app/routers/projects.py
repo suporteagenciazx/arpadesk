@@ -259,4 +259,8 @@ def project_report(
         ps = today.replace(day=1)
         pe = today
     key = f"report:{project_id}:{ps}:{pe}"
-    return cached_json(key, lambda: compute_report(db, project_id, ps, pe))
+
+    def _build():
+        return compute_report(db, project_id, ps, pe)
+
+    return cached_json(key, _build)

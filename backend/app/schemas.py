@@ -149,6 +149,39 @@ class PeriodFineOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ReportImportOut(BaseModel):
+    id: int
+    project_id: int
+    period_start: date
+    period_end: date
+    original_filename: Optional[str] = None
+    extracted_data: dict = Field(default_factory=dict)
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ReportImportLogOut(BaseModel):
+    id: int
+    period_start: date
+    period_end: date
+    original_filename: Optional[str] = None
+    saved_at: datetime
+    created_by_name: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class ReportImportParseOut(BaseModel):
+    staging_id: str
+    period_start: date
+    period_end: date
+    original_filename: Optional[str] = None
+    parse_status: str
+    extracted_data: dict = Field(default_factory=dict)
+    preview: dict = Field(default_factory=dict)
+
+
 # Sales
 class SaleCreate(BaseModel):
     participant_id: int

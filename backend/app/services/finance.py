@@ -10,8 +10,10 @@ from app.models import (
     DEFAULT_DOC_TYPES,
     DEFAULT_EXPENSE_TYPES,
     Expense,
+    PeriodCommission,
     Project,
     ProjectMember,
+    ReportImport,
     Sale,
     SaleStatus,
     User,
@@ -209,7 +211,68 @@ def seed_database(db: Session) -> None:
     db.commit()
 
 
+def _period_commission_rows(
+    db: Session, project_id: int, period_start: date | None, period_end: date | None
+) -> list[tuple[PeriodCommission, User]]:
+    if not period_start or not period_end:
+        return []
+    return (
+        db.query(PeriodCommission, User)
+        .join(User, PeriodCommission.participant_id == User.id)
+        .filter(
+            PeriodCommission.project_id == project_id,
+            PeriodCommission.period_start == period_start,
+            PeriodCommission.period_end == period_end,
+        )
+        .all()
+    )
+
+
+def _import_fields_for_period(
+    db: Session, project_id: int, period_start: date | None, period_end: date | None
+) -> dict | None:
+    if not period_start or not period_end:
+        return None
+    imp = (
+        db.query(ReportImport)
+        .filter(
+            ReportImport.project_id == project_id,
+            ReportImport.period_start == period_start,
+            ReportImport.period_end == period_end,
+        )
+        .first()
+    )
+    if not imp or not imp.extracted_data:
+        return None
+    return imp.extracted_data.get("fields") or {}
+
+
 def compute_commissions(db: Session, project_id: int, period_start=None, period_end=None) -> list[dict]:
+    period_rows = _period_commission_rows(db, project_id, period_start, period_end)
+    if period_rows:
+        result = []
+        for pc, user in period_rows:
+            if user.level == UserLevel.admin:
+                continue
+            base = float(pc.sales_base or 0)
+            pct = float(pc.commission_percent or 0)
+            if pc.commission_amount is not None:
+                amount = float(pc.commission_amount)
+            else:
+                amount = round(base * pct / 100, 2)
+            result.append(
+                {
+                    "user_id": user.id,
+                    "user_name": user.name,
+                    "user_level": user.level.value,
+                    "commission_percent": pct,
+                    "total_sales_base": round(base, 2),
+                    "commission_amount": round(amount, 2),
+                    "commission_source": pc.source,
+                }
+            )
+        return sort_commissions(result)
+
     members = (
         db.query(ProjectMember, User)
         .join(User, ProjectMember.user_id == User.id)
@@ -258,9 +321,21 @@ def compute_summary(db: Session, project_id: int, period_start=None, period_end=
         exp_q = exp_q.filter(Expense.expense_date <= period_end)
 
     total_sales = sum(float(s.amount) for s in sales_q.all())
-    commissions = compute_commissions(db, project_id, period_start, period_end)
-    total_commissions = sum(c["commission_amount"] for c in commissions)
     total_expenses = sum(float(e.amount) for e in exp_q.all())
+
+    period_rows = _period_commission_rows(db, project_id, period_start, period_end)
+    pdf_fields = _import_fields_for_period(db, project_id, period_start, period_end) or {}
+    if period_rows and pdf_fields:
+        if pdf_fields.get("total_sales") is not None:
+            total_sales = float(pdf_fields["total_sales"])
+        if pdf_fields.get("total_expenses") is not None and total_expenses == 0:
+            total_expenses = float(pdf_fields["total_expenses"])
+
+    commissions = compute_commissions(db, project_id, period_start, period_end)
+    if period_rows and pdf_fields.get("total_commissions") is not None:
+        total_commissions = float(pdf_fields["total_commissions"])
+    else:
+        total_commissions = sum(c["commission_amount"] for c in commissions)
     balance = round(total_sales - total_commissions + total_expenses, 2)
 
     return {
@@ -269,6 +344,7 @@ def compute_summary(db: Session, project_id: int, period_start=None, period_end=
         "total_expenses": round(total_expenses, 2),
         "balance": balance,
         "commissions": commissions,
+        "uses_period_commissions": bool(period_rows),
     }
 
 

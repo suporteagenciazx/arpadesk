@@ -103,6 +103,15 @@ class Project(Base):
     expenses: Mapped[list["Expense"]] = relationship(back_populates="project")
     payments: Mapped[list["Payment"]] = relationship(back_populates="project")
     period_fines: Mapped[list["PeriodFine"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    period_commissions: Mapped[list["PeriodCommission"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+    report_imports: Mapped[list["ReportImport"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+    report_import_logs: Mapped[list["ReportImportLog"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
 
 
 class ProjectMember(Base):
@@ -218,6 +227,66 @@ class PeriodFine(Base):
 
     project: Mapped["Project"] = relationship(back_populates="period_fines")
     participant: Mapped["User"] = relationship(foreign_keys=[participant_id])
+
+
+class PeriodCommission(Base):
+    """% e valores de comissão vigentes apenas no período (ex.: importação de PDF histórico)."""
+
+    __tablename__ = "period_commissions"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id", "participant_id", "period_start", "period_end", name="uq_period_commission"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    participant_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    commission_percent: Mapped[float] = mapped_column(Numeric(5, 2), default=0)
+    sales_base: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    commission_amount: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    source: Mapped[str] = mapped_column(String(30), default="pdf_import")
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    project: Mapped["Project"] = relationship(back_populates="period_commissions")
+    participant: Mapped["User"] = relationship(foreign_keys=[participant_id])
+
+
+class ReportImport(Base):
+    __tablename__ = "report_imports"
+    __table_args__ = (
+        UniqueConstraint("project_id", "period_start", "period_end", name="uq_report_import_period"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    pdf_object_key: Mapped[str] = mapped_column(String(500))
+    original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    extracted_data: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    project: Mapped["Project"] = relationship(back_populates="report_imports")
+
+
+class ReportImportLog(Base):
+    __tablename__ = "report_import_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    saved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    project: Mapped["Project"] = relationship(back_populates="report_import_logs")
+    created_by: Mapped["User | None"] = relationship(foreign_keys=[created_by_id])
 
 
 class TelegramSettings(Base):

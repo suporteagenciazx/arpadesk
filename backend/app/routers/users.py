@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth_utils import hash_password
 from app.database import get_db
 from app.dependencies import get_current_user, require_admin
-from app.models import Payment, Project, ProjectMember, Sale, User, UserLevel
+from app.models import Payment, PeriodCommission, PeriodFine, Project, ProjectMember, Sale, User, UserLevel
 from app.routers.auth import user_to_out
 from app.schemas import UserCreate, UserOut, UserUpdate
 
@@ -98,6 +98,11 @@ def delete_user(user_id: int, admin: User = Depends(require_admin), db: Session 
             400,
             f"Usuário vinculado a {payments_count} pagamento(s). Remova os pagamentos antes de excluir.",
         )
+
+    db.query(PeriodCommission).filter(PeriodCommission.participant_id == user.id).delete(
+        synchronize_session=False
+    )
+    db.query(PeriodFine).filter(PeriodFine.participant_id == user.id).delete(synchronize_session=False)
 
     db.query(ProjectMember).filter(ProjectMember.user_id == user.id).delete(synchronize_session=False)
     db.delete(user)

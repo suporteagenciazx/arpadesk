@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { ProjectProvider } from "./context/ProjectContext";
 import { ThemeProvider } from "./context/ThemeContext";
+import { ToastProvider } from "./context/ToastContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
@@ -19,8 +20,9 @@ import Telegram from "./pages/config/Telegram";
 export default function App() {
   return (
     <ThemeProvider>
-      <AuthProvider>
-        <ProjectProvider>
+      <ToastProvider>
+        <AuthProvider>
+          <ProjectProvider>
           <BrowserRouter
             future={{
               v7_startTransition: true,
@@ -55,6 +57,7 @@ export default function App() {
           </BrowserRouter>
         </ProjectProvider>
       </AuthProvider>
+      </ToastProvider>
     </ThemeProvider>
   );
 }

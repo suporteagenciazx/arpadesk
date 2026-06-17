@@ -27,3 +27,15 @@ export const fmtDate = (d) => {
   if (!d) return "—";
   return new Date(d + "T12:00:00").toLocaleDateString("pt-BR");
 };
+
+export const fmtDateTime = (d) => {
+  if (!d) return "—";
+  const dt = new Date(d);
+  return dt.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};

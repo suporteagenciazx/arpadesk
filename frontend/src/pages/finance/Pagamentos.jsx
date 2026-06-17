@@ -2,11 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import api from "../../lib/api";
 import Modal from "../../components/Modal";
-import DateFilterBar from "../../components/DateFilterBar";
-import PeriodHint from "../../components/PeriodHint";
 import FinanceTabGuard from "../../components/FinanceTabGuard";
+import PeriodHint from "../../components/PeriodHint";
 import { UserIcon } from "../../components/Icons";
-import { useDateFilter } from "../../hooks/useDateFilter";
+import { useFinancePeriod } from "../../context/FinancePeriodContext";
 import { fmtMoney } from "../../lib/constants";
 import { maskMoney, parseMoney } from "../../lib/masks";
 
@@ -31,7 +30,7 @@ export default function Pagamentos() {
   const [hasPaymentSettings, setHasPaymentSettings] = useState(false);
   const [defaultFineAmount, setDefaultFineAmount] = useState(0);
   const [defaultFineNotes, setDefaultFineNotes] = useState("");
-  const filter = useDateFilter("atual");
+  const period = useFinancePeriod();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [rowDraft, setRowDraft] = useState({});
   const [confirmPay, setConfirmPay] = useState(null);
@@ -49,15 +48,24 @@ export default function Pagamentos() {
     default_fine_notes: "",
   });
 
-  const periodParams = (start = filter.periodStart, end = filter.periodEnd) => {
-    const params = {};
-    if (start) params.period_start = start;
-    if (end) params.period_end = end;
-    return params;
-  };
+  const periodParams = () => period.params();
 
-  const load = async (start = filter.periodStart, end = filter.periodEnd) => {
-    const params = periodParams(start, end);
+  const load = async () => {
+    if (period.hasDraft && period.importDraft?.preview) {
+      const preview = period.importDraft.preview;
+      setSummary({ commissions: preview.commissions || [] });
+      setPayments(preview.payments || []);
+      const psRes = await api.get(`/api/projects/${projectId}/payment-settings`).catch(() => ({ data: null }));
+      const ps = psRes.data;
+      setHasPaymentSettings(Boolean(ps?.pix_key || ps?.crypto_address));
+      if (ps) {
+        setSettings((prev) => ({ ...prev, ...ps }));
+        setDefaultFineAmount(ps.default_fine_amount || 0);
+        setDefaultFineNotes(ps.default_fine_notes || "");
+      }
+      return;
+    }
+    const params = periodParams();
     const [summaryRes, paymentsRes, psRes, finesRes] = await Promise.all([
       api.get(`/api/projects/${projectId}/payments/commissions`, { params }),
       api.get(`/api/projects/${projectId}/payments`, { params }).catch(() => ({ data: [] })),
@@ -93,7 +101,7 @@ export default function Pagamentos() {
 
   useEffect(() => {
     load();
-  }, [projectId]);
+  }, [projectId, period.periodStart, period.periodEnd, period.reloadToken, period.importDraft]);
 
   const saveSettings = async (e) => {
     e.preventDefault();
@@ -120,12 +128,12 @@ export default function Pagamentos() {
       .filter(
         (p) =>
           p.status === "pago" &&
-          p.period_start === filter.periodStart &&
-          p.period_end === filter.periodEnd
+          p.period_start === period.periodStart &&
+          p.period_end === period.periodEnd
       )
       .forEach((p) => map.set(p.participant_id, p));
     return map;
-  }, [payments, filter.periodStart, filter.periodEnd]);
+  }, [payments, period.periodStart, period.periodEnd]);
 
   const rowFinal = (c) => {
     const draft = rowDraft[c.user_id] || emptyDraft();
@@ -142,6 +150,11 @@ export default function Pagamentos() {
       return sum + rowFinal(c);
     }, 0);
   }, [rows, rowDraft, paidByUser, defaultFineAmount]);
+
+  useEffect(() => {
+    period.setPagamentosTotalToPay(summary ? totalToPay : null);
+    return () => period.setPagamentosTotalToPay(null);
+  }, [summary, totalToPay, period]);
 
   const openConfirm = (c) => {
     if (!hasPaymentSettings) {
@@ -184,8 +197,8 @@ export default function Pagamentos() {
         adjustment_amount: confirmPay.adjustment,
         apply_fine: confirmPay.apply_fine,
         fine_amount: confirmPay.apply_fine ? confirmPay.fine_amount : undefined,
-        period_start: filter.periodStart || null,
-        period_end: filter.periodEnd || null,
+        period_start: period.periodStart || null,
+        period_end: period.periodEnd || null,
         notes: noteParts.length ? noteParts.join("\n") : undefined,
       });
       await api.patch(`/api/projects/${projectId}/payments/${payment.id}/mark-paid`);
@@ -220,12 +233,12 @@ export default function Pagamentos() {
         fine_amount: amount,
         fine_notes: notes,
       });
-      if (filter.periodStart && filter.periodEnd && amount > 0) {
+      if (period.periodStart && period.periodEnd && amount > 0) {
         try {
           await api.post(`/api/projects/${projectId}/fines`, {
             participant_id: editField.userId,
-            period_start: filter.periodStart,
-            period_end: filter.periodEnd,
+            period_start: period.periodStart,
+            period_end: period.periodEnd,
             amount,
             notes: notes || null,
           });
@@ -239,35 +252,17 @@ export default function Pagamentos() {
 
   return (
     <FinanceTabGuard tab="pagamentos">
-      <div>
-        <div className="date-filter-row">
-          <DateFilterBar
-            preset={filter.preset}
-            onPresetChange={(id) => filter.applyPreset(id, load)}
-            periodStart={filter.periodStart}
-            periodEnd={filter.periodEnd}
-            onPeriodStartChange={filter.setPeriodStart}
-            onPeriodEndChange={filter.setPeriodEnd}
-          onApplyCustom={(e) => {
-            e.preventDefault();
-            load(filter.periodStart, filter.periodEnd);
-          }}
-          showWeekNav={filter.showWeekNav}
-          weekInfo={filter.weekInfo}
-          onWeekShift={(delta) => {
-            const r = filter.shiftWeek(delta);
-            load(r.start, r.end);
-          }}
+      <div className="payments-page">
+        <PeriodHint
+          start={period.periodStart}
+          end={period.periodEnd}
+          preset={period.preset}
+          weekInfo={period.weekInfo}
         />
-          {summary && (
-            <div className="payment-total-card">
-              <span>Total a pagar no período</span>
-              <strong>{fmtMoney(totalToPay)}</strong>
-            </div>
-          )}
-        </div>
 
-        <PeriodHint start={filter.periodStart} end={filter.periodEnd} preset={filter.preset} weekInfo={filter.weekInfo} />
+        {period.hasDraft && (
+          <p className="hint">Pré-visualização da importação — confirme pagamentos após salvar o relatório.</p>
+        )}
 
         {!hasPaymentSettings && (
           <div className="alert">

@@ -1,79 +1,67 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import api from "../../lib/api";
-import DateFilterBar from "../../components/DateFilterBar";
-import PeriodHint from "../../components/PeriodHint";
 import FinanceTabGuard from "../../components/FinanceTabGuard";
 import { UserIcon } from "../../components/Icons";
-import { useDateFilter } from "../../hooks/useDateFilter";
+import { useFinancePeriod, useImportPreviewSummary } from "../../context/FinancePeriodContext";
 import { fmtMoney } from "../../lib/constants";
 
 export default function Comissoes() {
   const { projectId } = useParams();
+  const period = useFinancePeriod();
   const [summary, setSummary] = useState(null);
-  const filter = useDateFilter("atual");
 
-  const load = (start = filter.periodStart, end = filter.periodEnd) => {
-    const params = {};
-    if (start) params.period_start = start;
-    if (end) params.period_end = end;
-    api.get(`/api/projects/${projectId}/summary`, { params }).then(({ data }) => setSummary(data));
+  const load = () => {
+    if (period.hasDraft && period.importDraft?.preview?.summary) {
+      setSummary(period.importDraft.preview.summary);
+      return;
+    }
+    api
+      .get(`/api/projects/${projectId}/summary`, { params: period.params() })
+      .then(({ data }) => setSummary(data));
   };
 
   useEffect(() => {
     load();
-  }, [projectId]);
+  }, [projectId, period.periodStart, period.periodEnd, period.reloadToken, period.importDraft]);
+
+  const displaySummary = useImportPreviewSummary(summary);
 
   return (
     <FinanceTabGuard tab="comissoes">
       <div>
-        <DateFilterBar
-          preset={filter.preset}
-          onPresetChange={(id) => filter.applyPreset(id, load)}
-          periodStart={filter.periodStart}
-          periodEnd={filter.periodEnd}
-          onPeriodStartChange={filter.setPeriodStart}
-          onPeriodEndChange={filter.setPeriodEnd}
-          onApplyCustom={(e) => {
-            e.preventDefault();
-            load(filter.periodStart, filter.periodEnd);
-          }}
-          showWeekNav={filter.showWeekNav}
-          weekInfo={filter.weekInfo}
-          onWeekShift={(delta) => {
-            const r = filter.shiftWeek(delta);
-            load(r.start, r.end);
-          }}
-        />
-
-        <PeriodHint start={filter.periodStart} end={filter.periodEnd} preset={filter.preset} weekInfo={filter.weekInfo} />
-
-        {!summary ? (
+        {!displaySummary ? (
           <p>Carregando...</p>
         ) : (
           <>
             <div className="stats-grid">
               <div className="stat-card">
                 <span>Vendas (OK)</span>
-                <strong>{fmtMoney(summary.total_sales)}</strong>
+                <strong>{fmtMoney(displaySummary.total_sales)}</strong>
               </div>
               <div className="stat-card">
                 <span>Comissões</span>
-                <strong>{fmtMoney(summary.total_commissions)}</strong>
+                <strong>{fmtMoney(displaySummary.total_commissions)}</strong>
               </div>
               <div className="stat-card">
                 <span>Despesas</span>
-                <strong className="negative">{fmtMoney(summary.total_expenses)}</strong>
+                <strong className="negative">{fmtMoney(displaySummary.total_expenses)}</strong>
               </div>
               <div className="stat-card highlight">
                 <span>Saldo (lucro admin)</span>
-                <strong>{fmtMoney(summary.balance)}</strong>
+                <strong>{fmtMoney(displaySummary.balance)}</strong>
               </div>
             </div>
 
             <p className="hint">
               Contador e financeiro: % sobre todas as vendas OK. Ilustrativos: % apenas nas vendas em que
               são o gerente.
+              {displaySummary.uses_period_commissions && (
+                <>
+                  {" "}
+                  Período com relatório importado — % e valores conforme o PDF daquele período.
+                </>
+              )}
             </p>
 
             <div className="table-wrap">
@@ -87,7 +75,7 @@ export default function Comissoes() {
                   </tr>
                 </thead>
                 <tbody>
-                  {summary.commissions.map((c) => (
+                  {(displaySummary.commissions || []).map((c) => (
                     <tr key={c.user_id}>
                       <td>
                         <span className="user-cell">
@@ -102,7 +90,7 @@ export default function Comissoes() {
                       <td>{fmtMoney(c.commission_amount)}</td>
                     </tr>
                   ))}
-                  {summary.commissions.length === 0 && (
+                  {(displaySummary.commissions || []).length === 0 && (
                     <tr>
                       <td colSpan={4} className="muted center">
                         Nenhum colaborador com comissão no período.

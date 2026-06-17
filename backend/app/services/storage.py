@@ -57,6 +57,14 @@ def sale_cp_object_key(project_id: int, sale_id: int, extension: str) -> str:
     return f"projects/{project_id}/sales/{sale_id}/{uuid.uuid4().hex}{ext}"
 
 
+def report_pdf_object_key(project_id: int, period_start: str, period_end: str) -> str:
+    return f"projects/{project_id}/reports/{period_start}_{period_end}/{uuid.uuid4().hex}.pdf"
+
+
+def report_staging_object_key(project_id: int, staging_id: str) -> str:
+    return f"projects/{project_id}/reports/staging/{staging_id}.pdf"
+
+
 def _resolve_extension(upload: UploadFile) -> str:
     content_type = (upload.content_type or "").split(";")[0].strip().lower()
     if content_type in ALLOWED_CP_CONTENT_TYPES:
@@ -90,6 +98,27 @@ async def upload_sale_cp(project_id: int, sale_id: int, upload: UploadFile) -> s
         ContentType=content_type,
     )
     return key
+
+
+async def upload_report_pdf_bytes(project_id: int, key: str, data: bytes) -> str:
+    client = _client()
+    client.put_object(
+        Bucket=settings.s3_bucket,
+        Key=key,
+        Body=data,
+        ContentType="application/pdf",
+    )
+    return key
+
+
+async def upload_report_pdf(project_id: int, period_start: str, period_end: str, upload: UploadFile) -> str:
+    content_type = (upload.content_type or "").split(";")[0].strip().lower()
+    filename = (upload.filename or "").lower()
+    if content_type != "application/pdf" and not filename.endswith(".pdf"):
+        raise HTTPException(400, "Envie um arquivo PDF.")
+    data = await read_upload_limited(upload, max_bytes=15 * 1024 * 1024)
+    key = report_pdf_object_key(project_id, period_start, period_end)
+    return await upload_report_pdf_bytes(project_id, key, data)
 
 
 def download_object(key: str) -> tuple[bytes, str]:

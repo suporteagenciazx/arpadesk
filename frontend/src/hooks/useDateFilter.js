@@ -49,12 +49,19 @@ export function useDateFilter(initialPreset = "atual") {
     return p;
   };
 
+  const setPeriodRange = useCallback((start, end) => {
+    setPreset("custom");
+    setPeriodStart(start);
+    setPeriodEnd(end);
+  }, []);
+
   return {
     preset,
     periodStart,
     periodEnd,
     setPeriodStart,
     setPeriodEnd,
+    setPeriodRange,
     applyPreset,
     shiftWeek,
     weekInfo,

@@ -2,11 +2,9 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import api from "../../lib/api";
 import Modal from "../../components/Modal";
-import DateFilterBar from "../../components/DateFilterBar";
-import PeriodHint from "../../components/PeriodHint";
 import FinanceTabGuard from "../../components/FinanceTabGuard";
 import { ExpenseIcon } from "../../components/Icons";
-import { useDateFilter } from "../../hooks/useDateFilter";
+import { useFinancePeriod, useImportPreviewData } from "../../context/FinancePeriodContext";
 import { todayLocalIso } from "../../lib/calendar";
 import { EXPENSE_TYPES, fmtMoney, fmtDate } from "../../lib/constants";
 import { maskMoney, parseMoney } from "../../lib/masks";
@@ -26,12 +24,16 @@ export default function Despesas() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState("");
-  const filter = useDateFilter("atual");
+  const period = useFinancePeriod();
 
-  const load = async (start = filter.periodStart, end = filter.periodEnd) => {
-    const params = {};
-    if (start) params.period_start = start;
-    if (end) params.period_end = end;
+  const load = async () => {
+    if (period.hasDraft && period.importDraft?.preview?.expenses) {
+      setExpenses(period.importDraft.preview.expenses);
+      const p = await api.get(`/api/projects/${projectId}`);
+      setProject(p.data);
+      return;
+    }
+    const params = period.params();
     const [e, p] = await Promise.all([
       api.get(`/api/projects/${projectId}/expenses`, { params }),
       api.get(`/api/projects/${projectId}`),
@@ -42,7 +44,7 @@ export default function Despesas() {
 
   useEffect(() => {
     load();
-  }, [projectId]);
+  }, [projectId, period.periodStart, period.periodEnd, period.reloadToken, period.importDraft]);
 
   const types = project?.settings?.expense_types || EXPENSE_TYPES;
 
@@ -103,32 +105,18 @@ export default function Despesas() {
     }
   };
 
+  const displayExpenses = useImportPreviewData(expenses, "expenses");
+
   return (
     <FinanceTabGuard tab="despesas">
       <div>
-        <DateFilterBar
-          preset={filter.preset}
-          onPresetChange={(id) => filter.applyPreset(id, load)}
-          periodStart={filter.periodStart}
-          periodEnd={filter.periodEnd}
-          onPeriodStartChange={filter.setPeriodStart}
-          onPeriodEndChange={filter.setPeriodEnd}
-        onApplyCustom={(e) => {
-          e.preventDefault();
-          load(filter.periodStart, filter.periodEnd);
-        }}
-        showWeekNav={filter.showWeekNav}
-        weekInfo={filter.weekInfo}
-        onWeekShift={(delta) => {
-          const r = filter.shiftWeek(delta);
-          load(r.start, r.end);
-        }}
-      />
-
-        <PeriodHint start={filter.periodStart} end={filter.periodEnd} preset={filter.preset} weekInfo={filter.weekInfo} />
-
         <div className="toolbar">
-          <button type="button" className="btn btn-primary" onClick={openCreate}>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={openCreate}
+            disabled={period.hasDraft}
+          >
             + Nova despesa
           </button>
         </div>
@@ -148,7 +136,7 @@ export default function Despesas() {
               </tr>
             </thead>
             <tbody>
-              {expenses.map((ex) => (
+              {displayExpenses.map((ex) => (
                 <tr key={ex.id}>
                   <td>
                     <span className="expense-icon-cell">
@@ -160,16 +148,20 @@ export default function Despesas() {
                   <td>{fmtDate(ex.expense_date)}</td>
                   <td>{ex.notes || "—"}</td>
                   <td className="actions">
-                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => openEdit(ex)}>
-                      Editar
-                    </button>
-                    <button type="button" className="btn btn-sm btn-danger" onClick={() => remove(ex.id)}>
-                      Excluir
-                    </button>
+                    {!ex._import_preview && (
+                      <>
+                        <button type="button" className="btn btn-sm btn-ghost" onClick={() => openEdit(ex)}>
+                          Editar
+                        </button>
+                        <button type="button" className="btn btn-sm btn-danger" onClick={() => remove(ex.id)}>
+                          Excluir
+                        </button>
+                      </>
+                    )}
                   </td>
                 </tr>
               ))}
-              {expenses.length === 0 && (
+              {displayExpenses.length === 0 && (
                 <tr>
                   <td colSpan={6} className="muted center">
                     Nenhuma despesa no período.

@@ -43,6 +43,41 @@ def run_migrations() -> None:
             created_at TIMESTAMPTZ DEFAULT NOW(),
             CONSTRAINT uq_period_fine UNIQUE (project_id, participant_id, period_start, period_end)
         )""",
+        """CREATE TABLE IF NOT EXISTS report_imports (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            period_start DATE NOT NULL,
+            period_end DATE NOT NULL,
+            pdf_object_key VARCHAR(500) NOT NULL,
+            original_filename VARCHAR(255),
+            extracted_data JSONB DEFAULT '{}',
+            created_by_id INTEGER REFERENCES users(id),
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            CONSTRAINT uq_report_import_period UNIQUE (project_id, period_start, period_end)
+        )""",
+        """CREATE TABLE IF NOT EXISTS period_commissions (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            participant_id INTEGER NOT NULL REFERENCES users(id),
+            period_start DATE NOT NULL,
+            period_end DATE NOT NULL,
+            commission_percent NUMERIC(5, 2) NOT NULL DEFAULT 0,
+            sales_base NUMERIC(12, 2),
+            commission_amount NUMERIC(12, 2),
+            source VARCHAR(30) NOT NULL DEFAULT 'pdf_import',
+            created_by_id INTEGER REFERENCES users(id),
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            CONSTRAINT uq_period_commission UNIQUE (project_id, participant_id, period_start, period_end)
+        )""",
+        """CREATE TABLE IF NOT EXISTS report_import_logs (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            period_start DATE NOT NULL,
+            period_end DATE NOT NULL,
+            original_filename VARCHAR(255),
+            created_by_id INTEGER REFERENCES users(id),
+            saved_at TIMESTAMPTZ DEFAULT NOW()
+        )""",
     ]
     with engine.begin() as conn:
         for stmt in statements:
