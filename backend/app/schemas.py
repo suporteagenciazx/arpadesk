@@ -31,6 +31,7 @@ class UserCreate(UserBase):
     password: Optional[str] = None
     project_ids: list[int] = Field(default_factory=list)
     project_commissions: dict[str, float] = Field(default_factory=dict)
+    privileges: list[str] = Field(default_factory=list)
 
 
 class UserUpdate(BaseModel):
@@ -44,6 +45,7 @@ class UserUpdate(BaseModel):
     is_active: Optional[bool] = None
     project_ids: Optional[list[int]] = None
     project_commissions: Optional[dict[str, float]] = None
+    privileges: Optional[list[str]] = None
 
 
 class ProjectBrief(BaseModel):
@@ -65,8 +67,77 @@ class UserOut(BaseModel):
     notify_sales: bool = False
     is_active: bool
     projects: list[ProjectBrief] = []
+    privileges: list[str] = []
 
     model_config = {"from_attributes": True}
+
+
+class PrivilegeOut(BaseModel):
+    code: str
+    label: str
+    description: str
+
+
+class CashClosingPreviewOut(BaseModel):
+    period_start: str
+    period_end: str
+    billing_total: float
+    sales_count: int
+    ok_sales_count: int
+    ok_total: float
+    fines_total: float
+    total_commissions: float = 0
+    sales: list[dict] = Field(default_factory=list)
+    fines: list[dict] = Field(default_factory=list)
+    commissions: list[dict] = Field(default_factory=list)
+
+
+class CashClosingOut(BaseModel):
+    id: int
+    project_id: int
+    period_start: str
+    period_end: str
+    closed_by_id: int
+    closed_by_name: str
+    closed_at: Optional[str] = None
+    status: str
+    confirmed_by_id: Optional[int] = None
+    confirmed_by_name: Optional[str] = None
+    confirmed_at: Optional[str] = None
+    summary_snapshot: dict = Field(default_factory=dict)
+    frozen_for_user: bool = False
+    reopened_at: Optional[str] = None
+    reopened_by_id: Optional[int] = None
+    reopened_by_name: Optional[str] = None
+    reopen_scope: Optional[str] = None
+    report_public_id: Optional[str] = None
+    report_tabs_locked: bool = False
+
+
+class ReportSavePreviewOut(BaseModel):
+    period_start: str
+    period_end: str
+    billing_total: float
+    expenses_total: float
+    commissions_paid_ex_admin: float
+    profit: float
+    sales_count: int
+    ok_sales_count: int
+    roi_percent: Optional[float] = None
+    sales: list[dict] = Field(default_factory=list)
+    expenses: list[dict] = Field(default_factory=list)
+    commissions: list[dict] = Field(default_factory=list)
+    payments: list[dict] = Field(default_factory=list)
+
+
+class CashClosingReopenIn(BaseModel):
+    admin_password: str
+    scope: str = "all"  # all | admin_only
+
+
+class CashClosingResaveOut(BaseModel):
+    closing: CashClosingOut
+    changes: dict = Field(default_factory=dict)
 
 
 class NotificationSettingsUpdate(BaseModel):
@@ -78,6 +149,14 @@ class NotificationSettingsUpdate(BaseModel):
 class ProjectCreate(BaseModel):
     name: str
     description: Optional[str] = None
+
+
+class ProjectUpdate(BaseModel):
+    name: str
+
+
+class ProjectDeleteRequest(BaseModel):
+    admin_password: str
 
 
 class ProjectSettingsPatch(BaseModel):
@@ -172,6 +251,23 @@ class ReportImportLogOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ReportArchiveRowOut(BaseModel):
+    id: str
+    period_start: str
+    period_end: str
+    description: str
+    billing_total: float
+    expenses_total: float
+    sales_count: int
+    profit: float
+    saved_at: Optional[str] = None
+    has_pdf: bool = False
+
+
+class ReportArchiveReopenIn(BaseModel):
+    admin_password: str
+
+
 class ReportImportParseOut(BaseModel):
     staging_id: str
     period_start: date
@@ -210,6 +306,18 @@ class SaleUpdate(BaseModel):
 
 class SaleDeleteRequest(BaseModel):
     admin_password: str
+
+
+class SaleAdminUpdate(BaseModel):
+    admin_password: str
+    participant_id: Optional[int] = None
+    cnpj: Optional[str] = None
+    phone: Optional[str] = None
+    sale_version: Optional[str] = None
+    doc_type: Optional[str] = None
+    doc_custom: Optional[str] = None
+    amount: Optional[float] = None
+    sale_date: Optional[date] = None
 
 
 class SaleOut(BaseModel):

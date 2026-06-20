@@ -31,6 +31,7 @@ export default function Pagamentos() {
   const [defaultFineAmount, setDefaultFineAmount] = useState(0);
   const [defaultFineNotes, setDefaultFineNotes] = useState("");
   const period = useFinancePeriod();
+  const actionEnabled = period.isActionPeriod && !period.hasDraft;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [rowDraft, setRowDraft] = useState({});
   const [confirmPay, setConfirmPay] = useState(null);
@@ -312,6 +313,7 @@ export default function Pagamentos() {
                             <button
                               type="button"
                               className="btn btn-ghost btn-sm"
+                              disabled={!actionEnabled}
                               onClick={() =>
                                 setEditField({ userId: c.user_id, field: "adjustment", name: c.user_name })
                               }
@@ -323,6 +325,8 @@ export default function Pagamentos() {
                           <button
                             type="button"
                             className="btn btn-ghost btn-sm"
+                            disabled={!actionEnabled}
+                            title={!actionEnabled ? "Disponível apenas no filtro Atual" : undefined}
                             onClick={() =>
                               setEditField({ userId: c.user_id, field: "adjustment", name: c.user_name })
                             }
@@ -340,6 +344,7 @@ export default function Pagamentos() {
                             <button
                               type="button"
                               className="btn btn-ghost btn-sm"
+                              disabled={!actionEnabled}
                               onClick={() =>
                                 setEditField({ userId: c.user_id, field: "fine", name: c.user_name })
                               }
@@ -351,6 +356,8 @@ export default function Pagamentos() {
                           <button
                             type="button"
                             className="btn btn-ghost btn-sm"
+                            disabled={!actionEnabled}
+                            title={!actionEnabled ? "Disponível apenas no filtro Atual" : undefined}
                             onClick={() =>
                               setEditField({ userId: c.user_id, field: "fine", name: c.user_name })
                             }
@@ -370,6 +377,8 @@ export default function Pagamentos() {
                             type="button"
                             className="btn btn-sm btn-primary"
                             onClick={() => openConfirm(c)}
+                            disabled={!actionEnabled}
+                            title={!period.isActionPeriod ? "Disponível apenas no período atual (filtro Atual)" : undefined}
                           >
                             Confirmar pagamento
                           </button>

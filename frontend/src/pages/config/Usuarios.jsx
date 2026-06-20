@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import api from "../../lib/api";
 import Modal from "../../components/Modal";
 import { USER_LEVELS } from "../../lib/constants";
+import { PRIVILEGE_CATALOG } from "../../lib/privileges";
 import { UserIcon } from "../../components/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { Navigate } from "react-router-dom";
@@ -16,6 +17,7 @@ const emptyForm = {
   level: "agente",
   project_ids: [],
   project_commissions: {},
+  privileges: [],
 };
 
 export default function Usuarios() {
@@ -65,6 +67,7 @@ export default function Usuarios() {
       level: user.level === "ilustrativo" ? "agente" : user.level,
       project_ids: user.projects.map((p) => p.id),
       project_commissions: commissions,
+      privileges: user.privileges || [],
     });
     setModalOpen(true);
   };
@@ -91,6 +94,13 @@ export default function Usuarios() {
     });
   };
 
+  const togglePrivilege = (code) => {
+    const privs = form.privileges.includes(code)
+      ? form.privileges.filter((c) => c !== code)
+      : [...form.privileges, code];
+    setForm({ ...form, privileges: privs });
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     const level = isIlustrativo ? "ilustrativo" : form.level;
@@ -106,6 +116,7 @@ export default function Usuarios() {
     if (level !== "ilustrativo") {
       payload.email = form.email;
       if (form.password) payload.password = form.password;
+      payload.privileges = form.privileges;
     }
     if (editing) {
       await api.put(`/api/users/${editing.id}`, payload);
@@ -262,6 +273,26 @@ export default function Usuarios() {
             WhatsApp
             <input value={form.whatsapp} onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} />
           </label>
+
+          {!isIlustrativo && (
+            <div className="full project-assign">
+              <h4>Privilégios</h4>
+              <p className="hint">Funcionalidades extras habilitadas para este usuário no login.</p>
+              {PRIVILEGE_CATALOG.map((p) => (
+                <label key={p.code} className="checkbox-label privilege-row">
+                  <input
+                    type="checkbox"
+                    checked={form.privileges.includes(p.code)}
+                    onChange={() => togglePrivilege(p.code)}
+                  />
+                  <span>
+                    <strong>{p.label}</strong>
+                    <small>{p.description}</small>
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
 
           <div className="full project-assign">
             <h4>Projetos financeiros</h4>

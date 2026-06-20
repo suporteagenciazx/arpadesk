@@ -65,6 +65,9 @@ def list_payments(
 ):
     if not user_has_project_access(db, user, project_id):
         raise HTTPException(403, "Sem acesso")
+    from app.services.cash_closing import guard_period_access
+
+    guard_period_access(db, user, period_start, period_end)
     ps = db.query(ProjectPaymentSettings).filter(ProjectPaymentSettings.project_id == project_id).first()
     payments_q = (
         db.query(Payment)
@@ -132,6 +135,9 @@ def create_payment(
 ):
     if not user_has_project_access(db, user, project_id):
         raise HTTPException(403, "Sem acesso")
+    from app.services.cash_closing import assert_period_writable
+
+    assert_period_writable(db, project_id, data.period_start, data.period_end, user)
     ps = db.query(ProjectPaymentSettings).filter(ProjectPaymentSettings.project_id == project_id).first()
     if not ps:
         raise HTTPException(400, "Configure destino de pagamento (PIX ou Cripto) antes do primeiro pagamento")
@@ -181,6 +187,9 @@ def mark_paid(
     ).first()
     if not payment:
         raise HTTPException(404, "Pagamento não encontrado")
+    from app.services.cash_closing import assert_period_writable
+
+    assert_period_writable(db, project_id, payment.period_start, payment.period_end, user)
     payment.status = PaymentStatus.pago
     payment.paid_at = datetime.now(timezone.utc)
     db.commit()

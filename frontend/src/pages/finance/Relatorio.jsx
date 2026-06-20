@@ -75,7 +75,7 @@ export default function Relatorio() {
                 <span>Despesas</span>
                 <strong className="negative">{fmtMoney(displayReport.total_expenses)}</strong>
               </div>
-              <div className="stat-card highlight">
+              <div className="stat-card highlight-profit">
                 <span>Lucro</span>
                 <strong>{fmtMoney(displayReport.profit)}</strong>
               </div>
@@ -124,6 +124,7 @@ export default function Relatorio() {
                     <th>Gerente</th>
                     <th>Qtd vendas</th>
                     <th>Total</th>
+                    <th>Maior venda</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -132,12 +133,24 @@ export default function Relatorio() {
                       <td>{m.participant_name}</td>
                       <td>{m.sales_count}</td>
                       <td>{fmtMoney(m.total_amount)}</td>
+                      <td>
+                        {m.highest_sale_amount > 0 ? (
+                          <>
+                            {fmtMoney(m.highest_sale_amount)}
+                            {m.highest_sale_code && (
+                              <small className="muted"> ({m.highest_sale_code})</small>
+                            )}
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
                     </tr>
                   ))}
                   {(displayReport.sales_by_manager || []).length === 0 && (
                     <tr>
-                      <td colSpan={3} className="muted center">
-                        Nenhuma venda OK no período.
+                      <td colSpan={4} className="muted center">
+                        Nenhum gerente cadastrado no projeto.
                       </td>
                     </tr>
                   )}
@@ -145,7 +158,7 @@ export default function Relatorio() {
               </table>
             </div>
 
-            <div className="card report-import-log">
+            <div className="card report-import-log report-section-spaced">
               <h3>Registro de salvamentos</h3>
               {logs.length === 0 ? (
                 <p className="muted">Nenhum salvamento registrado para este período.</p>

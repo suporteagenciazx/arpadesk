@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-export default function Modal({ open, title, onClose, children, wide }) {
+export default function Modal({ open, title, onClose, children, wide, extraWide }) {
   const openedAt = useRef(0);
   const [mounted, setMounted] = useState(false);
 
@@ -35,7 +35,7 @@ export default function Modal({ open, title, onClose, children, wide }) {
   return createPortal(
     <div className="modal-overlay" onMouseDown={handleOverlayMouseDown}>
       <div
-        className={`modal-dialog ${wide ? "modal-dialog-wide" : ""}`}
+        className={`modal-dialog ${wide ? "modal-dialog-wide" : ""} ${extraWide ? "modal-dialog-extra-wide" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"

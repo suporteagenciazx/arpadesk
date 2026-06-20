@@ -11,9 +11,9 @@ import {
   TelegramIcon,
   UsersIcon,
 } from "./Icons";
+import ThemeSwitch from "./ThemeSwitch";
 import { useAuth } from "../context/AuthContext";
 import { useProject } from "../context/ProjectContext";
-import { useTheme } from "../context/ThemeContext";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 
 const SIDEBAR_KEY = "arpadesk_sidebar_collapsed";
@@ -30,7 +30,6 @@ function NavLabel({ icon: Icon, children, collapsed }) {
 export default function Layout() {
   const { user, logout, loading, isAdmin } = useAuth();
   const { clearProject } = useProject();
-  const { theme, toggleTheme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -234,20 +233,23 @@ export default function Layout() {
         </nav>
 
         <div className="sidebar-footer">
-          <span className="user-name">{user.name}</span>
-          <div className="footer-actions">
+          <div className="sidebar-user-card">
+            <span className="sidebar-user-avatar" aria-hidden>
+              {(user.name || "?").charAt(0).toUpperCase()}
+            </span>
+            <div className="sidebar-user-meta">
+              <span className="sidebar-user-name">{user.name}</span>
+              <span className="sidebar-user-role">{user.level || "usuário"}</span>
+            </div>
+          </div>
+          <div className="sidebar-footer-panel">
+            <ThemeSwitch collapsed={iconOnly} />
             <button
               type="button"
-              className="btn btn-ghost btn-sm theme-toggle"
-              onClick={toggleTheme}
-              title={theme === "light" ? "Modo escuro" : "Modo claro"}
+              className="sidebar-footer-btn sidebar-footer-btn--logout"
+              onClick={logout}
+              title="Sair"
             >
-              <span className="footer-icon" aria-hidden>
-                {theme === "light" ? "◐" : "◑"}
-              </span>
-              <span className="footer-btn-label">{theme === "light" ? "Escuro" : "Claro"}</span>
-            </button>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={logout} title="Sair">
               <LogOutIcon size={16} className="footer-icon-svg" />
               <span className="footer-btn-label">Sair</span>
             </button>

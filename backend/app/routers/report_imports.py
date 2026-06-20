@@ -224,6 +224,10 @@ async def commit_report_pdf(
         created_by_id=user.id,
     )
 
+    from app.services.cash_closing import ensure_cash_closing_from_import
+
+    ensure_cash_closing_from_import(db, project_id, ps, pe, user)
+
     db.commit()
     db.refresh(row)
     cache_delete_prefix(f"report:{project_id}:")

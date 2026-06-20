@@ -9,7 +9,7 @@ from app.database import get_db
 from app.dependencies import get_current_user, user_has_project_access
 from app.models import Sale, SaleStatus, User, UserLevel, generate_sale_code
 from app.permissions import can_change_sale_status, can_register_sale
-from app.schemas import SaleAttachmentUrlOut, SaleCreate, SaleDeleteRequest, SaleOut, SaleUpdate
+from app.schemas import SaleAdminUpdate, SaleAttachmentUrlOut, SaleCreate, SaleDeleteRequest, SaleOut, SaleUpdate
 from app.services.storage import (
     StorageError,
     delete_object,
@@ -62,6 +62,9 @@ def list_sales(
 ):
     if not user_has_project_access(db, user, project_id):
         raise HTTPException(403, "Sem acesso")
+    from app.services.cash_closing import guard_period_access
+
+    guard_period_access(db, user, period_start, period_end)
     sales_q = (
         db.query(Sale)
         .options(joinedload(Sale.participant))
@@ -87,6 +90,10 @@ def create_sale(
         raise HTTPException(403, "Sem acesso")
     if not can_register_sale(user):
         raise HTTPException(403, "Sem permissão para registrar vendas")
+    from app.services.cash_closing import assert_sales_expenses_writable
+
+    sale_date = data.sale_date or date.today()
+    assert_sales_expenses_writable(db, project_id, sale_date, sale_date, user)
     code = generate_sale_code()
     while db.query(Sale).filter(Sale.project_id == project_id, Sale.sale_code == code).first():
         code = generate_sale_code()
@@ -133,6 +140,9 @@ async def upload_sale_attachment(
     sale = db.query(Sale).filter(Sale.id == sale_id, Sale.project_id == project_id).first()
     if not sale:
         raise HTTPException(404, "Venda não encontrada")
+    from app.services.cash_closing import assert_sales_expenses_writable
+
+    assert_sales_expenses_writable(db, project_id, sale.sale_date, sale.sale_date, user)
     try:
         if sale.cp_attachment_url:
             delete_object(sale.cp_attachment_url)
@@ -208,11 +218,14 @@ def update_sale(
 ):
     if not user_has_project_access(db, user, project_id):
         raise HTTPException(403, "Sem acesso")
-    if data.status is not None and not can_change_sale_status(user):
+    if data.status is not None and not can_change_sale_status(db, user):
         raise HTTPException(403, "Apenas o financeiro pode alterar o status da venda")
     sale = db.query(Sale).filter(Sale.id == sale_id, Sale.project_id == project_id).first()
     if not sale:
         raise HTTPException(404, "Venda não encontrada")
+    from app.services.cash_closing import assert_sales_expenses_writable
+
+    assert_sales_expenses_writable(db, project_id, sale.sale_date, sale.sale_date, user)
     previous_status = sale.status
     for field in (
         "participant_id",
@@ -235,6 +248,44 @@ def update_sale(
     _invalidate_project_cache(project_id)
     if data.status is not None and previous_status != sale.status:
         notify_sale_on_ok(db, sale.id, project_id)
+    sale = db.query(Sale).options(joinedload(Sale.participant)).filter(Sale.id == sale.id).first()
+    return _sale_out(sale)
+
+
+@router.post("/{sale_id}/admin-update", response_model=SaleOut)
+def admin_update_sale(
+    project_id: int,
+    sale_id: int,
+    data: SaleAdminUpdate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not user_has_project_access(db, user, project_id):
+        raise HTTPException(403, "Sem acesso")
+    from app.services.cash_closing import assert_sales_expenses_writable, verify_admin_password
+
+    verify_admin_password(db, data.admin_password)
+    sale = db.query(Sale).filter(Sale.id == sale_id, Sale.project_id == project_id).first()
+    if not sale:
+        raise HTTPException(404, "Venda não encontrada")
+    assert_sales_expenses_writable(db, project_id, sale.sale_date, sale.sale_date, user)
+    for field in (
+        "participant_id",
+        "cnpj",
+        "phone",
+        "sale_version",
+        "doc_type",
+        "doc_custom",
+        "amount",
+        "sale_date",
+    ):
+        val = getattr(data, field)
+        if val is not None:
+            setattr(sale, field, val)
+    if data.doc_type and data.doc_type.upper() != "OUTROS":
+        sale.doc_custom = None
+    db.commit()
+    _invalidate_project_cache(project_id)
     sale = db.query(Sale).options(joinedload(Sale.participant)).filter(Sale.id == sale.id).first()
     return _sale_out(sale)
 
@@ -262,6 +313,9 @@ def delete_sale(
     sale = db.query(Sale).filter(Sale.id == sale_id, Sale.project_id == project_id).first()
     if not sale:
         raise HTTPException(404, "Venda não encontrada")
+    from app.services.cash_closing import assert_sales_expenses_writable
+
+    assert_sales_expenses_writable(db, project_id, sale.sale_date, sale.sale_date, user)
     if sale.cp_attachment_url:
         delete_object(sale.cp_attachment_url)
     db.delete(sale)

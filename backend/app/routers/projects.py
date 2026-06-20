@@ -20,13 +20,16 @@ from app.schemas import (
     PaymentSettingsIn,
     PaymentSettingsOut,
     ProjectCreate,
+    ProjectDeleteRequest,
     ProjectMemberIn,
     ProjectMemberOut,
     ProjectOut,
     ProjectSettingsPatch,
+    ProjectUpdate,
 )
 from app.services.finance import compute_summary, compute_report, slugify
 from app.services.cache import cached_json, cache_delete_prefix
+from app.auth_utils import verify_password
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -59,8 +62,10 @@ def list_projects(user: User = Depends(get_current_user), db: Session = Depends(
 
 @router.post("", response_model=ProjectOut, status_code=201)
 def create_project(data: ProjectCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if user.level not in (UserLevel.admin, UserLevel.financeiro):
-        raise HTTPException(403, "Sem permissão")
+    from app.permissions import can_create_project
+
+    if not can_create_project(db, user):
+        raise HTTPException(403, "Sem privilégio para criar projetos")
     slug = slugify(data.name)
     if db.query(Project).filter(Project.slug == slug).first():
         raise HTTPException(400, "Projeto já existe")
@@ -77,6 +82,53 @@ def create_project(data: ProjectCreate, user: User = Depends(get_current_user), 
     db.commit()
     db.refresh(project)
     return _project_out(project)
+
+
+@router.patch("/{project_id}", response_model=ProjectOut)
+def update_project(
+    project_id: int,
+    data: ProjectUpdate,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    project = db.get(Project, project_id)
+    if not project or not project.is_active:
+        raise HTTPException(404, "Projeto não encontrado")
+    name = data.name.strip().upper()
+    if not name:
+        raise HTTPException(400, "Nome inválido")
+    slug = slugify(name)
+    conflict = db.query(Project).filter(Project.slug == slug, Project.id != project_id).first()
+    if conflict:
+        raise HTTPException(400, "Já existe um projeto com esse nome")
+    project.name = name
+    project.slug = slug
+    db.commit()
+    db.refresh(project)
+    return _project_out(project)
+
+
+@router.post("/{project_id}/delete", status_code=204)
+def delete_project(
+    project_id: int,
+    data: ProjectDeleteRequest,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    admins = db.query(User).filter(User.level == UserLevel.admin, User.is_active.is_(True)).all()
+    verified = any(
+        a.password_hash and verify_password(data.admin_password, a.password_hash) for a in admins
+    )
+    if not verified:
+        raise HTTPException(403, "Senha de administrador incorreta")
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Projeto não encontrado")
+    cache_delete_prefix(f"summary:{project_id}:")
+    cache_delete_prefix(f"report:{project_id}:")
+    cache_delete_prefix(f"commissions:{project_id}:")
+    db.delete(project)
+    db.commit()
 
 
 @router.get("/{project_id}", response_model=ProjectOut)

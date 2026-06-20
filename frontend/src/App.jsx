@@ -13,6 +13,7 @@ import Despesas from "./pages/finance/Despesas";
 import Comissoes from "./pages/finance/Comissoes";
 import Pagamentos from "./pages/finance/Pagamentos";
 import Relatorio from "./pages/finance/Relatorio";
+import Arquivo from "./pages/finance/Arquivo";
 import Suporte from "./pages/Suporte";
 import Usuarios from "./pages/config/Usuarios";
 import Telegram from "./pages/config/Telegram";
@@ -50,6 +51,7 @@ export default function App() {
                   <Route path="comissoes" element={<Comissoes />} />
                   <Route path="pagamentos" element={<Pagamentos />} />
                   <Route path="relatorio" element={<Relatorio />} />
+                  <Route path="arquivo" element={<Arquivo />} />
                 </Route>
               </Route>
               <Route path="*" element={<Navigate to="/financeiro" replace />} />

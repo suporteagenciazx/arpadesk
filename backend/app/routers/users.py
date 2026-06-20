@@ -8,9 +8,17 @@ from app.database import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models import Payment, PeriodCommission, PeriodFine, Project, ProjectMember, Sale, User, UserLevel
 from app.routers.auth import user_to_out
+from app.privileges_catalog import privileges_for_level
+from app.privileges_catalog import PRIVILEGE_CATALOG
 from app.schemas import UserCreate, UserOut, UserUpdate
+from app.services.cash_closing import get_user_privilege_codes, sync_user_privileges
 
 router = APIRouter(prefix="/api/users", tags=["users"])
+
+
+@router.get("/privileges/catalog")
+def list_privilege_catalog(_: User = Depends(require_admin)):
+    return PRIVILEGE_CATALOG
 
 
 def sync_user_projects(db: Session, user: User, project_ids: list[int], commissions: dict):
@@ -46,6 +54,8 @@ def create_user(data: UserCreate, _: User = Depends(require_admin), db: Session 
     db.flush()
     if data.project_ids:
         sync_user_projects(db, user, data.project_ids, data.project_commissions)
+    privs = data.privileges if data.privileges else privileges_for_level(data.level)
+    sync_user_privileges(db, user, privs)
     db.commit()
     db.refresh(user)
     return user_to_out(db, user)
@@ -72,6 +82,10 @@ def update_user(
         user.email = None
     if data.project_ids is not None:
         sync_user_projects(db, user, data.project_ids, data.project_commissions or {})
+    if data.privileges is not None:
+        sync_user_privileges(db, user, data.privileges)
+    elif data.level is not None and data.level == UserLevel.ilustrativo:
+        sync_user_privileges(db, user, [])
     db.commit()
     db.refresh(user)
     return user_to_out(db, user)

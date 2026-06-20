@@ -78,6 +78,43 @@ def run_migrations() -> None:
             created_by_id INTEGER REFERENCES users(id),
             saved_at TIMESTAMPTZ DEFAULT NOW()
         )""",
+        """CREATE TABLE IF NOT EXISTS user_privileges (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            code VARCHAR(50) NOT NULL,
+            CONSTRAINT uq_user_privilege UNIQUE (user_id, code)
+        )""",
+        """CREATE TABLE IF NOT EXISTS cash_closings (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            period_start DATE NOT NULL,
+            period_end DATE NOT NULL,
+            closed_by_id INTEGER NOT NULL REFERENCES users(id),
+            closed_at TIMESTAMPTZ DEFAULT NOW(),
+            summary_snapshot JSONB DEFAULT '{}',
+            status VARCHAR(30) NOT NULL DEFAULT 'pending_admin',
+            confirmed_by_id INTEGER REFERENCES users(id),
+            confirmed_at TIMESTAMPTZ,
+            CONSTRAINT uq_cash_closing_period UNIQUE (project_id, period_start, period_end)
+        )""",
+        """INSERT INTO user_privileges (user_id, code)
+           SELECT id, 'cash_closing' FROM users
+           WHERE level IN ('financeiro', 'contador', 'agente')
+           AND NOT EXISTS (
+             SELECT 1 FROM user_privileges up WHERE up.user_id = users.id AND up.code = 'cash_closing'
+           )""",
+        """INSERT INTO user_privileges (user_id, code)
+           SELECT id, 'sale_confirm' FROM users
+           WHERE level = 'financeiro'
+           AND NOT EXISTS (
+             SELECT 1 FROM user_privileges up WHERE up.user_id = users.id AND up.code = 'sale_confirm'
+           )""",
+        "ALTER TABLE cash_closings ADD COLUMN IF NOT EXISTS reopened_at TIMESTAMPTZ",
+        "ALTER TABLE cash_closings ADD COLUMN IF NOT EXISTS reopened_by_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE cash_closings ADD COLUMN IF NOT EXISTS reopen_scope VARCHAR(20)",
+        "ALTER TABLE cash_closings ADD COLUMN IF NOT EXISTS report_public_id VARCHAR(5)",
+        "ALTER TABLE cash_closings ADD COLUMN IF NOT EXISTS report_tabs_locked BOOLEAN DEFAULT FALSE",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_cash_closing_report_public_id ON cash_closings (project_id, report_public_id) WHERE report_public_id IS NOT NULL",
     ]
     with engine.begin() as conn:
         for stmt in statements:

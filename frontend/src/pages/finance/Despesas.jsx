@@ -5,6 +5,8 @@ import Modal from "../../components/Modal";
 import FinanceTabGuard from "../../components/FinanceTabGuard";
 import { ExpenseIcon } from "../../components/Icons";
 import { useFinancePeriod, useImportPreviewData } from "../../context/FinancePeriodContext";
+import { useCashClosing } from "../../context/CashClosingContext";
+import { useAuth } from "../../context/AuthContext";
 import { todayLocalIso } from "../../lib/calendar";
 import { EXPENSE_TYPES, fmtMoney, fmtDate } from "../../lib/constants";
 import { maskMoney, parseMoney } from "../../lib/masks";
@@ -25,6 +27,10 @@ export default function Despesas() {
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState("");
   const period = useFinancePeriod();
+  const { isAdmin } = useAuth();
+  const { frozen, tabsLocked } = useCashClosing();
+  const actionEnabled = period.isActionPeriod && !period.hasDraft;
+  const canEdit = actionEnabled && !tabsLocked && (isAdmin || !frozen);
 
   const load = async () => {
     if (period.hasDraft && period.importDraft?.preview?.expenses) {
@@ -105,6 +111,14 @@ export default function Despesas() {
     }
   };
 
+  const lockedTitle = tabsLocked
+    ? "Relatório salvo — edite pela aba Arquivo para alterar"
+    : frozen
+      ? "Caixa fechado"
+      : !period.isActionPeriod
+        ? "Disponível apenas no período atual (filtro Atual)"
+        : undefined;
+
   const displayExpenses = useImportPreviewData(expenses, "expenses");
 
   return (
@@ -115,7 +129,8 @@ export default function Despesas() {
             type="button"
             className="btn btn-primary"
             onClick={openCreate}
-            disabled={period.hasDraft}
+            disabled={!canEdit}
+            title={lockedTitle}
           >
             + Nova despesa
           </button>
@@ -148,7 +163,7 @@ export default function Despesas() {
                   <td>{fmtDate(ex.expense_date)}</td>
                   <td>{ex.notes || "—"}</td>
                   <td className="actions">
-                    {!ex._import_preview && (
+                    {!ex._import_preview && canEdit && (
                       <>
                         <button type="button" className="btn btn-sm btn-ghost" onClick={() => openEdit(ex)}>
                           Editar

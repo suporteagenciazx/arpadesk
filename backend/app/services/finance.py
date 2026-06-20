@@ -377,7 +377,23 @@ def compute_report(db: Session, project_id: int, period_start: date | None, peri
 
     avg_ticket = round(summary["total_sales"] / len(ok_sales), 2) if ok_sales else 0.0
 
+    members = (
+        db.query(ProjectMember, User)
+        .join(User, ProjectMember.user_id == User.id)
+        .filter(ProjectMember.project_id == project_id, User.level == UserLevel.ilustrativo)
+        .all()
+    )
     manager_map: dict[int, dict] = {}
+    for _m, u in members:
+        manager_map[u.id] = {
+            "participant_id": u.id,
+            "participant_name": u.name,
+            "sales_count": 0,
+            "total_amount": 0.0,
+            "highest_sale_amount": 0.0,
+            "highest_sale_code": None,
+        }
+
     for sale in ok_sales:
         pid = sale.participant_id
         if pid not in manager_map:
@@ -386,11 +402,15 @@ def compute_report(db: Session, project_id: int, period_start: date | None, peri
                 "participant_name": sale.participant.name if sale.participant else "—",
                 "sales_count": 0,
                 "total_amount": 0.0,
+                "highest_sale_amount": 0.0,
+                "highest_sale_code": None,
             }
         manager_map[pid]["sales_count"] += 1
-        manager_map[pid]["total_amount"] = round(
-            manager_map[pid]["total_amount"] + float(sale.amount), 2
-        )
+        amt = float(sale.amount)
+        manager_map[pid]["total_amount"] = round(manager_map[pid]["total_amount"] + amt, 2)
+        if amt > manager_map[pid]["highest_sale_amount"]:
+            manager_map[pid]["highest_sale_amount"] = amt
+            manager_map[pid]["highest_sale_code"] = sale.sale_code
 
     sales_by_manager = sorted(manager_map.values(), key=lambda x: x["total_amount"], reverse=True)
 

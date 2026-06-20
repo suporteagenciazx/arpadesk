@@ -34,6 +34,9 @@ def list_fines(
 ):
     if not user_has_project_access(db, user, project_id):
         raise HTTPException(403, "Sem acesso")
+    from app.services.cash_closing import guard_period_access
+
+    guard_period_access(db, user, period_start, period_end)
     q = (
         db.query(PeriodFine)
         .options(joinedload(PeriodFine.participant))
@@ -58,6 +61,9 @@ def upsert_fine(
         raise HTTPException(403, "Sem permissão")
     if not user_has_project_access(db, user, project_id):
         raise HTTPException(403, "Sem acesso")
+    from app.services.cash_closing import assert_sales_expenses_writable
+
+    assert_sales_expenses_writable(db, project_id, data.period_start, data.period_end, user)
     if data.amount <= 0:
         raise HTTPException(400, "Valor da multa deve ser maior que zero")
 
@@ -117,5 +123,8 @@ def delete_fine(
     fine = db.query(PeriodFine).filter(PeriodFine.id == fine_id, PeriodFine.project_id == project_id).first()
     if not fine:
         raise HTTPException(404, "Multa não encontrada")
+    from app.services.cash_closing import assert_sales_expenses_writable
+
+    assert_sales_expenses_writable(db, project_id, fine.period_start, fine.period_end, user)
     db.delete(fine)
     db.commit()

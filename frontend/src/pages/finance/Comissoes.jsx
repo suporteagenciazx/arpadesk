@@ -47,7 +47,7 @@ export default function Comissoes() {
                 <span>Despesas</span>
                 <strong className="negative">{fmtMoney(displaySummary.total_expenses)}</strong>
               </div>
-              <div className="stat-card highlight">
+              <div className="stat-card highlight-profit">
                 <span>Saldo (lucro admin)</span>
                 <strong>{fmtMoney(displaySummary.balance)}</strong>
               </div>

@@ -128,6 +128,12 @@ export function getPresetRange(preset, refDate = new Date()) {
   }
 }
 
+/** Período exibido é a semana operacional atual (preset «Atual»). */
+export function isCurrentOperationalPeriod(periodStart, periodEnd) {
+  const atual = getPresetRange("atual");
+  return periodStart === atual.start && periodEnd === atual.end;
+}
+
 /** Fechamento de caixa: seg–sex até 20h da sexta (horário local). */
 export function isCashClosingAvailable(refDate = new Date()) {
   const day = refDate.getDay();

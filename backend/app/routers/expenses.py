@@ -61,6 +61,10 @@ def create_expense(
 ):
     if not user_has_project_access(db, user, project_id):
         raise HTTPException(403, "Sem acesso")
+    from app.services.cash_closing import assert_sales_expenses_writable
+
+    expense_date = data.expense_date or date.today()
+    assert_sales_expenses_writable(db, project_id, expense_date, expense_date, user)
     expense = Expense(
         project_id=project_id,
         expense_type=data.expense_type,
@@ -96,6 +100,9 @@ def update_expense(
     expense = db.query(Expense).filter(Expense.id == expense_id, Expense.project_id == project_id).first()
     if not expense:
         raise HTTPException(404, "Despesa não encontrada")
+    from app.services.cash_closing import assert_sales_expenses_writable
+
+    assert_sales_expenses_writable(db, project_id, expense.expense_date, expense.expense_date, user)
     if data.expense_type is not None:
         expense.expense_type = data.expense_type
     if data.amount is not None:
@@ -129,6 +136,9 @@ def delete_expense(
     expense = db.query(Expense).filter(Expense.id == expense_id, Expense.project_id == project_id).first()
     if not expense:
         raise HTTPException(404, "Despesa não encontrada")
+    from app.services.cash_closing import assert_sales_expenses_writable
+
+    assert_sales_expenses_writable(db, project_id, expense.expense_date, expense.expense_date, user)
     db.delete(expense)
     db.commit()
     _invalidate_project_cache(project_id)

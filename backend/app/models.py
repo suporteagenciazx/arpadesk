@@ -52,6 +52,11 @@ class TelegramSendMode(str, enum.Enum):
     user = "user"
 
 
+class CashClosingStatus(str, enum.Enum):
+    pending_admin = "pending_admin"
+    confirmed = "confirmed"
+
+
 def utcnow():
     return datetime.now(timezone.utc)
 
@@ -82,6 +87,20 @@ class User(Base):
     project_memberships: Mapped[list["ProjectMember"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", passive_deletes=True
     )
+    privileges: Mapped[list["UserPrivilege"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class UserPrivilege(Base):
+    __tablename__ = "user_privileges"
+    __table_args__ = (UniqueConstraint("user_id", "code", name="uq_user_privilege"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    code: Mapped[str] = mapped_column(String(50))
+
+    user: Mapped["User"] = relationship(back_populates="privileges")
 
 
 class Project(Base):
@@ -112,6 +131,39 @@ class Project(Base):
     report_import_logs: Mapped[list["ReportImportLog"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
+    cash_closings: Mapped[list["CashClosing"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+
+
+class CashClosing(Base):
+    __tablename__ = "cash_closings"
+    __table_args__ = (
+        UniqueConstraint("project_id", "period_start", "period_end", name="uq_cash_closing_period"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    closed_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    closed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    summary_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict)
+    status: Mapped[CashClosingStatus] = mapped_column(
+        Enum(CashClosingStatus), default=CashClosingStatus.pending_admin
+    )
+    confirmed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reopened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reopened_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    reopen_scope: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    report_public_id: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    report_tabs_locked: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    project: Mapped["Project"] = relationship(back_populates="cash_closings")
+    closed_by: Mapped["User"] = relationship(foreign_keys=[closed_by_id])
+    confirmed_by: Mapped["User | None"] = relationship(foreign_keys=[confirmed_by_id])
+    reopened_by: Mapped["User | None"] = relationship(foreign_keys=[reopened_by_id])
 
 
 class ProjectMember(Base):

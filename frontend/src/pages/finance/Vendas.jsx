@@ -2,8 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import api, { postMultipart } from "../../lib/api";
 import Modal from "../../components/Modal";
+import CashClosingSummary, { fmtDateTime } from "../../components/CashClosingSummary";
 import { useAuth } from "../../context/AuthContext";
 import { useFinancePeriod } from "../../context/FinancePeriodContext";
+import { useCashClosing } from "../../context/CashClosingContext";
+import { useToast } from "../../context/ToastContext";
 import {
   SALE_VERSIONS,
   SALE_STATUSES,
@@ -12,12 +15,9 @@ import {
   fmtDate,
 } from "../../lib/constants";
 import { formatSaleMemberLabel } from "../../lib/helpers";
-import { todayLocalIso, isCashClosingAvailable } from "../../lib/calendar";
-import {
-  canManageDefaultFine,
-  canCashClosing,
-  isPeriodLockedForUser,
-} from "../../lib/permissions";
+import { todayLocalIso } from "../../lib/calendar";
+import { canManageDefaultFine, isPeriodLockedForUser } from "../../lib/permissions";
+import { canCashClosing } from "../../lib/privileges";
 import { FineIcon, FloppyDiskIcon } from "../../components/Icons";
 import { maskCnpj, maskPhone, maskMoney, parseMoney, isValidCnpjMasked, isValidPhoneMasked } from "../../lib/masks";
 
@@ -34,42 +34,10 @@ const emptyForm = {
 
 const statusLabel = (value) => SALE_STATUSES.find((s) => s.value === value)?.label || value;
 
-function buildManagerCommissionRows(okSales, members, periodFines) {
-  const byParticipant = {};
-  okSales.forEach((s) => {
-    const id = s.participant_id;
-    byParticipant[id] = (byParticipant[id] || 0) + Number(s.amount || 0);
-  });
-
-  const finesByUser = {};
-  periodFines.forEach((f) => {
-    finesByUser[f.participant_id] = (finesByUser[f.participant_id] || 0) + Number(f.amount || 0);
-  });
-
-  return members
-    .filter((m) => m.user_level === "ilustrativo")
-    .map((m) => {
-      const billing = byParticipant[m.user_id] || 0;
-      const pct = Number(m.commission_percent || 0);
-      const commission = (billing * pct) / 100;
-      const fine = finesByUser[m.user_id] || 0;
-      const net = Math.round((commission - fine) * 100) / 100;
-      return {
-        key: `i-${m.user_id}`,
-        name: m.user_name,
-        billing,
-        percent: pct,
-        commission,
-        fine,
-        net,
-      };
-    })
-    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-}
-
 export default function Vendas() {
   const { projectId } = useParams();
-  const { canChangeSaleStatus, canRegisterSale, user } = useAuth();
+  const { canChangeSaleStatus, canRegisterSale, user, isAdmin } = useAuth();
+  const { notify } = useToast();
   const [sales, setSales] = useState([]);
   const [members, setMembers] = useState([]);
   const [project, setProject] = useState(null);
@@ -80,11 +48,15 @@ export default function Vendas() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [adminPassword, setAdminPassword] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [editSaleOpen, setEditSaleOpen] = useState(false);
+  const [editForm, setEditForm] = useState(emptyForm);
+  const [editAdminPassword, setEditAdminPassword] = useState("");
+  const [editCpFile, setEditCpFile] = useState(null);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [error, setError] = useState("");
   const [dragId, setDragId] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [cpFile, setCpFile] = useState(null);
-  const period = useFinancePeriod();
   const [hiddenKanbanCols, setHiddenKanbanCols] = useState(() => new Set());
   const [fineModalOpen, setFineModalOpen] = useState(false);
   const [fineParticipantId, setFineParticipantId] = useState("");
@@ -93,12 +65,77 @@ export default function Vendas() {
   const [periodFines, setPeriodFines] = useState([]);
   const [savingFine, setSavingFine] = useState(false);
   const [cashClosingOpen, setCashClosingOpen] = useState(false);
+  const [savingClosing, setSavingClosing] = useState(false);
+  const [unlocking, setUnlocking] = useState(false);
 
-  const periodLocked = isPeriodLockedForUser(user?.level);
-  const showDateFilters = false;
+  const period = useFinancePeriod();
+  const {
+    closing,
+    preview,
+    loadPreview,
+    submitClosing,
+    frozen,
+    tabsLocked,
+    isCaixaFechado,
+    isUnlocked,
+    unlockCashClosing,
+  } = useCashClosing();
+
+  const weekActive = period.isActionPeriod;
+  const canEditSales = weekActive && !tabsLocked && (isAdmin || !frozen);
+  const canEditFines = weekActive && !tabsLocked && (isAdmin || !frozen);
+  const canChangeStatus =
+    weekActive && canChangeSaleStatus && !tabsLocked && (isAdmin || !frozen);
   const canManageFine = canManageDefaultFine(user?.level);
-  const canUseCashClosing = canCashClosing(user?.level);
-  const cashClosingAvailable = isCashClosingAvailable();
+  const periodLocked = isPeriodLockedForUser(user, isAdmin);
+  const canUseCashClosing = canCashClosing(user);
+  const showFecharCaixa = canUseCashClosing && weekActive && (!closing || isUnlocked) && !tabsLocked;
+  const showReabrirCaixa = isAdmin && isCaixaFechado && weekActive && !tabsLocked;
+
+  const lockedTitle = tabsLocked
+    ? "Relatório salvo — edite pela aba Arquivo para alterar"
+    : frozen
+      ? "Caixa fechado"
+      : !weekActive
+        ? "Disponível apenas no filtro Atual"
+        : undefined;
+
+  const openCashClosingModal = async () => {
+    setError("");
+    try {
+      await loadPreview();
+      setCashClosingOpen(true);
+    } catch (err) {
+      setError(err.response?.data?.detail || "Erro ao carregar fechamento");
+    }
+  };
+
+  const saveCashClosing = async () => {
+    setSavingClosing(true);
+    setError("");
+    try {
+      await submitClosing();
+      setCashClosingOpen(false);
+      notify("Fechamento de caixa registrado.", "success");
+    } catch (err) {
+      setError(err.response?.data?.detail || "Erro ao salvar fechamento");
+    } finally {
+      setSavingClosing(false);
+    }
+  };
+
+  const handleUnlockCaixa = async () => {
+    setUnlocking(true);
+    setError("");
+    try {
+      await unlockCashClosing();
+      notify("Caixa reaberto — usuários podem voltar a registrar vendas e multas.", "success");
+    } catch (err) {
+      setError(err.response?.data?.detail || "Erro ao reabrir caixa");
+    } finally {
+      setUnlocking(false);
+    }
+  };
 
   const load = async () => {
     if (period.hasDraft && period.importDraft?.preview?.sales) {
@@ -226,6 +263,7 @@ export default function Vendas() {
   };
 
   const requestStatusChange = (saleId, newStatus) => {
+    if (!canChangeStatus) return;
     const sale = sales.find((s) => s.id === saleId);
     if (!sale || sale.status === newStatus) return;
     setStatusConfirm({
@@ -256,7 +294,7 @@ export default function Vendas() {
   };
 
   const onDrop = async (status) => {
-    if (!dragId || !canChangeSaleStatus) return;
+    if (!dragId || !canChangeStatus) return;
     const sale = sales.find((s) => s.id === dragId);
     if (sale && sale.status !== status) {
       requestStatusChange(dragId, status);
@@ -281,9 +319,78 @@ export default function Vendas() {
   };
 
   const openDeleteConfirm = (sale) => {
+    if (!canEditSales) return;
     setError("");
     setAdminPassword("");
     setDeleteConfirm({ saleId: sale.id, saleCode: sale.sale_code });
+  };
+
+  const openEditSale = (sale) => {
+    if (!canEditSales) return;
+    setEditForm({
+      participant_id: String(sale.participant_id),
+      cnpj: sale.cnpj || "",
+      phone: sale.phone || "",
+      sale_version: sale.sale_version,
+      doc_type: sale.doc_type,
+      doc_custom: sale.doc_custom || "",
+      amount: String(sale.amount).replace(".", ","),
+      sale_date: sale.sale_date,
+    });
+    setEditAdminPassword("");
+    setEditCpFile(null);
+    setEditSaleOpen(true);
+  };
+
+  const submitEditSale = async (e) => {
+    e.preventDefault();
+    if (!detailSale) return;
+    setError("");
+    if (editForm.cnpj && !isValidCnpjMasked(editForm.cnpj)) {
+      setError("CNPJ incompleto. Use o formato 00.000.000/0000-00");
+      return;
+    }
+    if (editForm.phone && !isValidPhoneMasked(editForm.phone)) {
+      setError("Telefone incompleto. Use o formato (12) 91234-5678");
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      const { data: updated } = await api.post(
+        `/api/projects/${projectId}/sales/${detailSale.id}/admin-update`,
+        {
+          admin_password: editAdminPassword,
+          participant_id: Number(editForm.participant_id),
+          cnpj: editForm.cnpj || null,
+          phone: editForm.phone || null,
+          sale_version: editForm.sale_version,
+          doc_type: editForm.doc_type,
+          doc_custom: editForm.doc_type === "OUTROS" ? editForm.doc_custom : null,
+          amount: parseMoney(editForm.amount),
+          sale_date: editForm.sale_date,
+        }
+      );
+      let finalSale = updated;
+      if (editCpFile) {
+        const fd = new FormData();
+        fd.append("file", editCpFile);
+        const { data: withAttachment } = await postMultipart(
+          `/api/projects/${projectId}/sales/${detailSale.id}/attachment`,
+          fd,
+          { params: { notify: false } }
+        );
+        finalSale = withAttachment;
+      }
+      setEditSaleOpen(false);
+      setEditAdminPassword("");
+      setEditCpFile(null);
+      setDetailSale((prev) => (prev ? { ...prev, ...finalSale } : prev));
+      await load();
+    } catch (err) {
+      setError(err.response?.data?.detail || "Erro ao editar venda");
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const confirmDelete = async (e) => {
@@ -308,14 +415,7 @@ export default function Vendas() {
 
   const docLabel = (s) => (s.doc_type === "OUTROS" ? s.doc_custom || "OUTROS" : s.doc_type);
 
-  const billingTotal = sales.reduce((sum, s) => sum + Number(s.amount || 0), 0);
-  const okSales = sales.filter((s) => s.status === "ok");
-  const okTotal = okSales.reduce((sum, s) => sum + Number(s.amount || 0), 0);
-  const finesTotal = periodFines.reduce((sum, f) => sum + Number(f.amount || 0), 0);
-  const commissionRows = useMemo(
-    () => buildManagerCommissionRows(okSales, members, periodFines),
-    [okSales, members, periodFines]
-  );
+
   const fineTargets = useMemo(
     () => members.filter((m) => m.user_level !== "admin"),
     [members]
@@ -340,27 +440,45 @@ export default function Vendas() {
             ⊞ Kanban
           </button>
         </div>
-        <div className="toolbar-actions">
+        <div className="toolbar-actions toolbar-actions--cash">
           {canRegisterSale && (
-            <button type="button" className="btn btn-primary" onClick={openModal}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={openModal}
+              disabled={!canEditSales}
+              title={lockedTitle}
+            >
               + Nova venda
             </button>
           )}
-          {canUseCashClosing && (
+          {showFecharCaixa && (
             <button
               type="button"
               className="btn-cash-closing-outline"
-              disabled={!cashClosingAvailable}
-              onClick={() => setCashClosingOpen(true)}
-              title={
-                cashClosingAvailable
-                  ? "Fechamento de caixa da semana"
-                  : "Disponível de segunda a sexta até 20h"
-              }
+              onClick={openCashClosingModal}
+              title="Fechar caixa da semana"
             >
               <FloppyDiskIcon size={15} />
               Fechamento de caixa
             </button>
+          )}
+          {showReabrirCaixa && (
+            <div className="cash-closing-reopen-group">
+              <button
+                type="button"
+                className="btn-cash-closing-confirm"
+                disabled={unlocking}
+                onClick={handleUnlockCaixa}
+              >
+                <FloppyDiskIcon size={15} />
+                {unlocking ? "Reabrindo..." : "Reabrir caixa"}
+              </button>
+              <span className="cash-closing-closed-meta">
+                Fechado por <strong>{closing?.closed_by_name}</strong> em{" "}
+                {fmtDateTime(closing?.closed_at)}
+              </span>
+            </div>
           )}
         </div>
         {canManageFine && (
@@ -368,7 +486,8 @@ export default function Vendas() {
             type="button"
             className="btn-fine-outline toolbar-end"
             onClick={openFineModal}
-            title="Registrar multa para um gerente no período"
+            disabled={!canEditFines}
+            title={lockedTitle}
           >
             <FineIcon size={15} />
             Adicionar multa
@@ -379,7 +498,7 @@ export default function Vendas() {
       {error && <p className="error">{error}</p>}
 
       {periodLocked && (
-        <p className="hint">Período travado em «Atual» para seu perfil.</p>
+        <p className="hint">Período fixo na semana atual — habilite o privilégio «Histórico completo» para outros períodos.</p>
       )}
 
       {period.hasDraft && (
@@ -413,10 +532,11 @@ export default function Vendas() {
                   <td>{fmtMoney(s.amount)}</td>
                   <td>{fmtDate(s.sale_date)}</td>
                   <td>
-                    {canChangeSaleStatus ? (
+                    {canChangeStatus ? (
                       <select
                         className="select-sm"
                         value={s.status}
+                        disabled={!canChangeStatus}
                         onChange={(e) => {
                           const next = e.target.value;
                           if (next !== s.status) requestStatusChange(s.id, next);
@@ -444,6 +564,8 @@ export default function Vendas() {
                       <button
                         type="button"
                         className="btn btn-danger btn-sm"
+                        disabled={!canEditSales}
+                        title={!weekActive ? "Disponível apenas no filtro Atual" : undefined}
                         onClick={() => openDeleteConfirm(s)}
                       >
                         Excluir
@@ -485,7 +607,7 @@ export default function Vendas() {
               <div
                 key={col.value}
                 className="kanban-column"
-                onDragOver={(e) => canChangeSaleStatus && e.preventDefault()}
+                onDragOver={(e) => canChangeStatus && e.preventDefault()}
                 onDrop={() => onDrop(col.value)}
               >
                 <div className="kanban-column-header">
@@ -507,9 +629,9 @@ export default function Vendas() {
                 {salesByStatus(col.value).map((s) => (
                   <div
                     key={s.id}
-                    className={`kanban-card ${!canChangeSaleStatus ? "kanban-card-static" : ""}`}
-                    draggable={canChangeSaleStatus}
-                    onDragStart={() => canChangeSaleStatus && setDragId(s.id)}
+                    className={`kanban-card ${!canChangeStatus ? "kanban-card-static" : ""}`}
+                    draggable={canChangeStatus}
+                    onDragStart={() => canChangeStatus && setDragId(s.id)}
                     onDragEnd={() => setDragId(null)}
                   >
                     <div className="kanban-card-top">
@@ -620,14 +742,14 @@ export default function Vendas() {
             />
           </label>
           <label className="full">
-            Anexar CP
+            Anexar CP <span className="muted">(opcional)</span>
             <input
               type="file"
               accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
               onChange={(e) => setCpFile(e.target.files?.[0] || null)}
             />
             <span className="hint-inline">
-              PDF ou imagem (máx. 10 MB). O arquivo fica no MinIO; apenas a referência é salva na venda.
+              PDF ou imagem (máx. 10 MB). Nem todas as vendas precisam de comprovante.
             </span>
             {cpFile && <span className="hint-inline">Selecionado: {cpFile.name}</span>}
           </label>
@@ -737,16 +859,167 @@ export default function Vendas() {
               <button type="button" className="btn btn-ghost" onClick={() => setDetailSale(null)}>
                 Fechar
               </button>
-              <button
-                type="button"
-                className="btn btn-danger"
-                onClick={() => openDeleteConfirm(detailSale)}
-              >
-                Excluir
-              </button>
+              {canEditSales && (
+                <button type="button" className="btn btn-primary" onClick={() => openEditSale(detailSale)}>
+                  Editar dados da venda
+                </button>
+              )}
+              {canEditSales && (
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  onClick={() => openDeleteConfirm(detailSale)}
+                >
+                  Excluir
+                </button>
+              )}
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={editSaleOpen}
+        title={detailSale ? `Editar venda ${detailSale.sale_code}` : "Editar venda"}
+        wide
+        onClose={() => !savingEdit && setEditSaleOpen(false)}
+      >
+        <form className="form-grid" onSubmit={submitEditSale}>
+          <label>
+            Gerente / Agente
+            <select
+              required
+              value={editForm.participant_id}
+              onChange={(e) => setEditForm({ ...editForm, participant_id: e.target.value })}
+            >
+              <option value="">Selecione...</option>
+              {members
+                .filter((m) => m.user_level !== "admin")
+                .map((m) => (
+                  <option key={m.user_id} value={m.user_id}>
+                    {formatSaleMemberLabel(m)}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label>
+            CNPJ
+            <input
+              placeholder="00.000.000/0000-00"
+              value={editForm.cnpj}
+              onChange={(e) => setEditForm({ ...editForm, cnpj: maskCnpj(e.target.value) })}
+            />
+          </label>
+          <label>
+            Telefone
+            <input
+              placeholder="(12) 91234-5678"
+              value={editForm.phone}
+              onChange={(e) => setEditForm({ ...editForm, phone: maskPhone(e.target.value) })}
+            />
+          </label>
+          <label>
+            Venda
+            <select
+              value={editForm.sale_version}
+              onChange={(e) => setEditForm({ ...editForm, sale_version: e.target.value })}
+            >
+              {SALE_VERSIONS.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            DOC
+            <select
+              value={editForm.doc_type}
+              onChange={(e) => setEditForm({ ...editForm, doc_type: e.target.value })}
+            >
+              {docTypes.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </label>
+          {editForm.doc_type === "OUTROS" && (
+            <label>
+              DOC (outros)
+              <input
+                value={editForm.doc_custom}
+                onChange={(e) => setEditForm({ ...editForm, doc_custom: e.target.value })}
+              />
+            </label>
+          )}
+          <label>
+            Valor
+            <input
+              required
+              value={editForm.amount}
+              onChange={(e) => setEditForm({ ...editForm, amount: maskMoney(e.target.value) })}
+            />
+          </label>
+          <label>
+            Data
+            <input
+              type="date"
+              required
+              value={editForm.sale_date}
+              onChange={(e) => setEditForm({ ...editForm, sale_date: e.target.value })}
+            />
+          </label>
+          <label className="full">
+            Comprovante (CP) <span className="muted">(opcional)</span>
+            {detailSale?.has_cp_attachment || detailSale?.cp_attachment_url ? (
+              <span className="hint-inline">
+                Comprovante atual anexado.{" "}
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => openCpAttachment(detailSale.id)}
+                >
+                  Ver atual
+                </button>
+              </span>
+            ) : (
+              <span className="hint-inline">Nenhum comprovante anexado.</span>
+            )}
+            <input
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
+              onChange={(e) => setEditCpFile(e.target.files?.[0] || null)}
+            />
+            <span className="hint-inline">
+              Selecione um arquivo para anexar ou substituir o comprovante (PDF ou imagem, máx. 10 MB).
+            </span>
+            {editCpFile && <span className="hint-inline">Novo arquivo: {editCpFile.name}</span>}
+          </label>
+          <label className="full">
+            Senha de administrador
+            <input
+              type="password"
+              required
+              autoComplete="current-password"
+              value={editAdminPassword}
+              onChange={(e) => setEditAdminPassword(e.target.value)}
+            />
+          </label>
+          <div className="form-actions full">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={savingEdit}
+              onClick={() => setEditSaleOpen(false)}
+            >
+              Cancelar
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={savingEdit}>
+              {savingEdit ? "Salvando..." : "Salvar alterações"}
+            </button>
+          </div>
+        </form>
       </Modal>
 
       <Modal
@@ -849,102 +1122,18 @@ export default function Vendas() {
             Período: {period.periodStart} — {period.periodEnd}
             {period.weekInfo?.label ? ` · ${period.weekInfo.label}` : ""}
           </p>
-          <div className="cash-closing-total">
-            <span>FATURAMENTO FINAL:</span>
-            <strong>{fmtMoney(billingTotal)}</strong>
-          </div>
-          <p className="hint cash-closing-meta">
-            {sales.length} venda(s) no período · {okSales.length} confirmada(s) (OK): {fmtMoney(okTotal)}
-          </p>
-          {sales.length > 0 ? (
-            <div className="table-wrap cash-closing-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Código</th>
-                    <th>Agente</th>
-                    <th>Valor</th>
-                    <th>Data</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sales.map((s) => (
-                    <tr key={s.id}>
-                      <td>
-                        <code>{s.sale_code}</code>
-                      </td>
-                      <td>{s.participant_name}</td>
-                      <td>{fmtMoney(s.amount)}</td>
-                      <td>{fmtDate(s.sale_date)}</td>
-                      <td>{statusLabel(s.status)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="muted">Nenhuma venda registrada nesta semana.</p>
-          )}
-
-          <div className="cash-closing-section">
-            <h4>Multas</h4>
-            {periodFines.length > 0 ? (
-              <>
-                <div className="table-wrap cash-closing-table">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Gerente</th>
-                        <th>Qtd.</th>
-                        <th>Valor descontado</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {periodFines.map((f) => (
-                        <tr key={f.id}>
-                          <td>{f.participant_name}</td>
-                          <td>1</td>
-                          <td>{fmtMoney(f.amount)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <p className="cash-closing-fine-total">
-                  Total em multas: {fmtMoney(finesTotal)}
-                </p>
-              </>
-            ) : (
-              <p className="muted">Nenhuma multa registrada no período.</p>
-            )}
-          </div>
-
-          <div className="cash-closing-section">
-            <h4>Comissões</h4>
-            {commissionRows.length > 0 ? (
-              <div className="cash-closing-commissions">
-                {commissionRows.map((row) => (
-                  <div key={row.key} className="cash-closing-commission-row">
-                    <div>
-                      <strong>{row.name}</strong>
-                      <small>
-                        Faturamento: {fmtMoney(row.billing)} ({row.percent}%)
-                        {row.fine > 0 && ` · Multa: ${fmtMoney(row.fine)}`}
-                      </small>
-                    </div>
-                    <strong className={row.net < 0 ? "amount-negative" : ""}>{fmtMoney(row.net)}</strong>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="muted">Nenhum gerente cadastrado no projeto.</p>
-            )}
-          </div>
-
+          <CashClosingSummary snapshot={preview} />
           <div className="form-actions">
-            <button type="button" className="btn btn-primary" onClick={() => setCashClosingOpen(false)}>
-              Salvar
+            <button type="button" className="btn btn-ghost" onClick={() => setCashClosingOpen(false)}>
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={savingClosing}
+              onClick={saveCashClosing}
+            >
+              {savingClosing ? "Salvando..." : "Salvar fechamento"}
             </button>
           </div>
         </div>

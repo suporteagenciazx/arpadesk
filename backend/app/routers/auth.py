@@ -4,7 +4,8 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth_utils import create_access_token, verify_password
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import User, UserLevel, ProjectMember
+from app.models import ProjectMember, User, UserLevel
+from app.services.cash_closing import get_user_privilege_codes
 from app.schemas import LoginRequest, ProjectBrief, TokenResponse, UserOut
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -34,6 +35,7 @@ def user_to_out(db: Session, user: User) -> UserOut:
         notify_sales=bool(user.notify_sales),
         is_active=user.is_active,
         projects=projects,
+        privileges=get_user_privilege_codes(db, user.id),
     )
 
 
