@@ -127,3 +127,37 @@ python -c "from datetime import date; from app.services.calendar import operatio
 3. Usar ‹ › e verificar que cada passo move exatamente 7 dias.
 4. Clicar **Atual** e voltar à semana corrente.
 5. No Relatório, conferir card "vs semana passada" com base na semana seg–sex completa.
+
+---
+
+## Semana aberta do projeto (pós-save do relatório)
+
+Além da semana civil, cada projeto guarda a **semana aberta** em `projects.settings.finance_config.active_period` (seg–sex). É a referência do preset **Atual** para admin e equipe após salvar o relatório semanal.
+
+| Papel | Comportamento |
+|-------|----------------|
+| **Admin** | **Atual** = semana aberta do servidor (`GET /api/projects/{id}/active-period`). Após **Salvar relatório** (1º save), avança para a próxima seg–sex. Reabrir caixa antes do save: equipe volta ao mesmo período. |
+| **Equipe** | Sempre na semana aberta. **CAIXA FECHADO** se caixa fechado ou se `hoje < segunda` da semana vigente. |
+| **Arquivo → Restaurar vigência** | Admin confirma com senha; define semana do relatório arquivado como semana aberta (`POST .../restore-as-active`). |
+
+### Onde está no código
+
+| Camada | Arquivo |
+|--------|---------|
+| Backend | `backend/app/services/active_period.py` |
+| Save relatório | `backend/app/services/report_save.py` |
+| Caixa / frozen | `backend/app/services/cash_closing.py` |
+| Arquivo | `backend/app/services/report_archive.py` |
+| Frontend | `frontend/src/context/FinancePeriodContext.jsx`, `CashClosingContext.jsx` |
+| UI | `PeriodHint.jsx`, overlay em `FinanceLayout.jsx` |
+
+### PeriodHint (duas linhas)
+
+```
+🟢 Hoje dd/mm/yyyy
+· Próxima abertura de caixa programada para dd/mm/yyyy (Semana XX/YYYY)
+```
+
+### Migrar para VPS
+
+`active_period`, fechamentos e relatórios salvos vêm no **dump PostgreSQL** — ver [07-migracao-local-vps.md](./07-migracao-local-vps.md).

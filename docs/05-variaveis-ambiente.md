@@ -1,6 +1,11 @@
 # 05 — Variáveis de ambiente
 
-Referência das variáveis usadas pelo Arpadesk. Copie `.env.example` para `.env` na raiz do projeto.
+Referência das variáveis usadas pelo Arpadesk.
+
+| Template | Ambiente |
+|----------|----------|
+| `.env.example` | Desenvolvimento local — copiar para `.env` na raiz |
+| `.env.vps.example` | VPS staging/prod — copiar para `.env` em `/srv/arpadesk-*` |
 
 > **Nunca** commite o arquivo `.env`. Na VPS use `chmod 600 .env`.
 

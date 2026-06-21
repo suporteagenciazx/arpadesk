@@ -128,6 +128,15 @@ class ReportSavePreviewOut(BaseModel):
     expenses: list[dict] = Field(default_factory=list)
     commissions: list[dict] = Field(default_factory=list)
     payments: list[dict] = Field(default_factory=list)
+    next_active_period_start: Optional[str] = None
+    next_active_period_end: Optional[str] = None
+
+
+class ActivePeriodOut(BaseModel):
+    period_start: str
+    period_end: str
+    week_open_for_team: bool = True
+    next_opening_date: Optional[str] = None
 
 
 class CashClosingReopenIn(BaseModel):
@@ -163,6 +172,42 @@ class ProjectSettingsPatch(BaseModel):
     telegram_notify_on_ok: Optional[bool] = None
 
 
+class WeeklyClosingConfigIn(BaseModel):
+    default_weekday: Optional[int] = None
+    default_time: Optional[str] = None
+    mode: Optional[str] = None
+    current_week: Optional[dict] = None
+
+
+class DailyClosingConfigIn(BaseModel):
+    enabled: Optional[bool] = None
+    time: Optional[str] = None
+    mode: Optional[str] = None
+
+
+class ClosingScheduleIn(BaseModel):
+    weekly: Optional[WeeklyClosingConfigIn] = None
+    daily: Optional[DailyClosingConfigIn] = None
+
+
+class BonusRuleIn(BaseModel):
+    id: Optional[str] = None
+    name: str = "Regra de bônus"
+    enabled: bool = True
+    rule_type: str = "user_threshold"
+    period: str = "week"
+    threshold_amount: float = 0
+    reward_type: str = "fixed"
+    reward_value: float = 0
+    participant_ids: list[int] = Field(default_factory=list)
+    description: str = ""
+
+
+class ProjectFinanceConfigPatch(BaseModel):
+    closing_schedule: Optional[ClosingScheduleIn] = None
+    bonus_rules: Optional[list[BonusRuleIn]] = None
+
+
 class ProjectOut(BaseModel):
     id: int
     name: str
@@ -187,6 +232,12 @@ class ProjectMemberOut(BaseModel):
     commission_percent: float
 
     model_config = {"from_attributes": True}
+
+
+class ProjectFinanceConfigOut(BaseModel):
+    closing_schedule: dict
+    bonus_rules: list[dict]
+    members: list[ProjectMemberOut] = Field(default_factory=list)
 
 
 class PaymentSettingsIn(BaseModel):
@@ -262,6 +313,7 @@ class ReportArchiveRowOut(BaseModel):
     profit: float
     saved_at: Optional[str] = None
     has_pdf: bool = False
+    is_active_period: bool = False
 
 
 class ReportArchiveReopenIn(BaseModel):
@@ -411,6 +463,30 @@ class FinanceSummary(BaseModel):
     commissions: list[dict]
 
 
+class TelegramBotCreateIn(BaseModel):
+    display_name: str
+    username: Optional[str] = None
+    bot_token: str
+
+
+class TelegramBotUpdateIn(BaseModel):
+    display_name: Optional[str] = None
+    username: Optional[str] = None
+    bot_token: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class TelegramBotOut(BaseModel):
+    id: int
+    display_name: str
+    username: Optional[str] = None
+    is_active: bool = True
+    avatar_url: Optional[str] = None
+    has_token: bool = False
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
 class TelegramBotSettingsIn(BaseModel):
     bot_token: Optional[str] = None
 
@@ -421,6 +497,7 @@ class TelegramNotificationSettingsIn(BaseModel):
     template: Optional[str] = None
     enabled: Optional[bool] = None
     attach_cp: Optional[bool] = None
+    bot_id: Optional[int] = None
 
 
 class TelegramSettingsIn(BaseModel):
@@ -453,10 +530,14 @@ class TelegramSettingsOut(BaseModel):
     notify_on_confirmation: bool = True
     attach_cp_on_confirmation: bool = False
     has_token: bool = False
+    registration_bot_id: Optional[int] = None
+    confirmation_bot_id: Optional[int] = None
+    bots: list[TelegramBotOut] = Field(default_factory=list)
 
 
 class TelegramTestIn(BaseModel):
     bot_token: Optional[str] = None
+    bot_id: Optional[int] = None
     chat_id: Optional[str] = None
     message: Optional[str] = None
     template: Optional[str] = None
@@ -467,6 +548,40 @@ class TelegramTestOut(BaseModel):
     message: str
     bot_username: Optional[str] = None
     message_id: Optional[int] = None
+
+
+class ProjectAutomationConfigIn(BaseModel):
+    chat_id: Optional[str] = None
+    send_mode: Optional[str] = None
+    template: Optional[str] = None
+    attach_cp: Optional[bool] = None
+    bot_id: Optional[int] = None
+
+
+class ProjectAutomationUpdateIn(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_enabled: Optional[bool] = None
+    config: Optional[ProjectAutomationConfigIn] = None
+
+
+class ProjectAutomationOut(BaseModel):
+    id: int
+    project_id: int
+    automation_key: str
+    name: str
+    description: str = ""
+    is_enabled: bool = False
+    config: dict = Field(default_factory=dict)
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class ProjectAutomationTestIn(BaseModel):
+    bot_id: Optional[int] = None
+    chat_id: Optional[str] = None
+    message: Optional[str] = None
+    template: Optional[str] = None
 
 
 TokenResponse.model_rebuild()

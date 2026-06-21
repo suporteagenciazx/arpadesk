@@ -36,7 +36,7 @@ def list_fines(
         raise HTTPException(403, "Sem acesso")
     from app.services.cash_closing import guard_period_access
 
-    guard_period_access(db, user, period_start, period_end)
+    guard_period_access(db, project_id, user, period_start, period_end)
     q = (
         db.query(PeriodFine)
         .options(joinedload(PeriodFine.participant))
@@ -89,6 +89,9 @@ def upsert_fine(
             .filter(PeriodFine.id == existing.id)
             .first()
         )
+        from app.services.automation_notifications import notify_fine_added
+
+        notify_fine_added(db, project_id, fine.id)
         return _fine_out(fine)
 
     fine = PeriodFine(
@@ -108,6 +111,9 @@ def upsert_fine(
         .filter(PeriodFine.id == fine.id)
         .first()
     )
+    from app.services.automation_notifications import notify_fine_added
+
+    notify_fine_added(db, project_id, fine.id)
     return _fine_out(fine)
 
 

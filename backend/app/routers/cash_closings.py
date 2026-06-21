@@ -50,7 +50,7 @@ def get_period_cash_closing(
         raise HTTPException(403, "Sem acesso")
     from app.services.cash_closing import guard_period_access
 
-    guard_period_access(db, user, period_start, period_end)
+    guard_period_access(db, project_id, user, period_start, period_end)
     ps = date.fromisoformat(period_start)
     pe = date.fromisoformat(period_end)
     closing = get_cash_closing(db, project_id, ps, pe)

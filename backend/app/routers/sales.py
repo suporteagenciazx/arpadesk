@@ -64,7 +64,7 @@ def list_sales(
         raise HTTPException(403, "Sem acesso")
     from app.services.cash_closing import guard_period_access
 
-    guard_period_access(db, user, period_start, period_end)
+    guard_period_access(db, project_id, user, period_start, period_end)
     sales_q = (
         db.query(Sale)
         .options(joinedload(Sale.participant))

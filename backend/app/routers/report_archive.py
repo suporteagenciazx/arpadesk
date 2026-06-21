@@ -6,12 +6,13 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import require_admin_finance, user_has_project_access
-from app.schemas import CashClosingOut, ReportArchiveReopenIn, ReportArchiveRowOut
+from app.schemas import ActivePeriodOut, CashClosingOut, ReportArchiveReopenIn, ReportArchiveRowOut
 from app.services.cash_closing import cash_closing_to_dict, is_period_frozen_for_user, verify_admin_password
 from app.services.report_archive import (
     cancel_report_edit,
     list_report_archive,
     reopen_saved_report_for_edit,
+    restore_report_as_active_period,
 )
 from app.services.report_pdf_export import generate_report_pdf
 
@@ -89,3 +90,20 @@ def cancel_report_edit_route(
     data = cash_closing_to_dict(closing)
     data["frozen_for_user"] = is_period_frozen_for_user(db, project_id, ps, pe, user)
     return CashClosingOut(**data)
+
+
+@router.post("/restore-as-active", response_model=ActivePeriodOut)
+def restore_report_as_active_route(
+    project_id: int,
+    period_start: str = Query(...),
+    period_end: str = Query(...),
+    body: ReportArchiveReopenIn = Body(...),
+    user=Depends(require_admin_finance),
+    db: Session = Depends(get_db),
+):
+    if not user_has_project_access(db, user, project_id):
+        raise HTTPException(403, "Sem acesso")
+    verify_admin_password(db, body.admin_password)
+    ps = date.fromisoformat(period_start)
+    pe = date.fromisoformat(period_end)
+    return ActivePeriodOut(**restore_report_as_active_period(db, project_id, ps, pe))

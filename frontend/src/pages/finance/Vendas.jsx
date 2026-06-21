@@ -4,6 +4,7 @@ import api, { postMultipart } from "../../lib/api";
 import Modal from "../../components/Modal";
 import CashClosingSummary, { fmtDateTime } from "../../components/CashClosingSummary";
 import { useAuth } from "../../context/AuthContext";
+import { useProject } from "../../context/ProjectContext";
 import { useFinancePeriod } from "../../context/FinancePeriodContext";
 import { useCashClosing } from "../../context/CashClosingContext";
 import { useToast } from "../../context/ToastContext";
@@ -16,6 +17,7 @@ import {
 } from "../../lib/constants";
 import { formatSaleMemberLabel } from "../../lib/helpers";
 import { todayLocalIso } from "../../lib/calendar";
+import { mergeFinanceConfig, isManualClosingAllowed, isWithinManualClosingWindow } from "../../lib/financeConfig";
 import { canManageDefaultFine, isPeriodLockedForUser } from "../../lib/permissions";
 import { canCashClosing } from "../../lib/privileges";
 import { FineIcon, FloppyDiskIcon } from "../../components/Icons";
@@ -37,6 +39,7 @@ const statusLabel = (value) => SALE_STATUSES.find((s) => s.value === value)?.lab
 export default function Vendas() {
   const { projectId } = useParams();
   const { canChangeSaleStatus, canRegisterSale, user, isAdmin } = useAuth();
+  const { project: ctxProject } = useProject();
   const { notify } = useToast();
   const [sales, setSales] = useState([]);
   const [members, setMembers] = useState([]);
@@ -82,19 +85,26 @@ export default function Vendas() {
   } = useCashClosing();
 
   const weekActive = period.isActionPeriod;
-  const canEditSales = weekActive && !tabsLocked && (isAdmin || !frozen);
-  const canEditFines = weekActive && !tabsLocked && (isAdmin || !frozen);
+  const canOperate = isAdmin || (period.isTeamWeekOpen && !frozen);
+  const canEditSales = weekActive && !tabsLocked && canOperate;
+  const canEditFines = weekActive && !tabsLocked && canOperate;
   const canChangeStatus =
-    weekActive && canChangeSaleStatus && !tabsLocked && (isAdmin || !frozen);
+    weekActive && canChangeSaleStatus && !tabsLocked && canOperate;
   const canManageFine = canManageDefaultFine(user?.level);
   const periodLocked = isPeriodLockedForUser(user, isAdmin);
   const canUseCashClosing = canCashClosing(user);
-  const showFecharCaixa = canUseCashClosing && weekActive && (!closing || isUnlocked) && !tabsLocked;
+  const financeConfig = useMemo(() => mergeFinanceConfig(project?.settings || ctxProject?.settings), [project?.settings, ctxProject?.settings]);
+  const manualClosingOk =
+    isManualClosingAllowed(financeConfig) && isWithinManualClosingWindow(financeConfig);
+  const showFecharCaixa =
+    canUseCashClosing && weekActive && manualClosingOk && (!closing || isUnlocked) && !tabsLocked;
   const showReabrirCaixa = isAdmin && isCaixaFechado && weekActive && !tabsLocked;
 
   const lockedTitle = tabsLocked
     ? "Relatório salvo — edite pela aba Arquivo para alterar"
-    : frozen
+    : !period.isTeamWeekOpen
+      ? "Semana ainda não abriu para operação"
+      : frozen
       ? "Caixa fechado"
       : !weekActive
         ? "Disponível apenas no filtro Atual"
@@ -116,6 +126,7 @@ export default function Vendas() {
     try {
       await submitClosing();
       setCashClosingOpen(false);
+      period.bumpReload();
       notify("Fechamento de caixa registrado.", "success");
     } catch (err) {
       setError(err.response?.data?.detail || "Erro ao salvar fechamento");
@@ -129,6 +140,8 @@ export default function Vendas() {
     setError("");
     try {
       await unlockCashClosing();
+      await period.refreshActivePeriod();
+      period.bumpReload();
       notify("Caixa reaberto — usuários podem voltar a registrar vendas e multas.", "success");
     } catch (err) {
       setError(err.response?.data?.detail || "Erro ao reabrir caixa");

@@ -5,10 +5,14 @@
 ```
 arpadesk/
 ├── README.md
-├── .env.example                 # template — copiar para .env (nunca commitar .env)
+├── .env.example                 # template dev — copiar para .env
+├── .env.vps.example             # template VPS staging/prod
 ├── docker-compose.yml           # produção / VPS (Caddy + stack fechada)
 ├── docker-compose.dev.yml       # desenvolvimento local
 ├── docker/                      # Dockerfiles, nginx, Caddyfile
+├── scripts/
+│   ├── backup-local.ps1         # backup PC → migracao VPS
+│   └── restore-on-vps.sh        # restore na VPS
 ├── backend/
 │   ├── app/
 │   │   ├── main.py              # FastAPI app + lifespan

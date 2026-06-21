@@ -67,7 +67,7 @@ def list_payments(
         raise HTTPException(403, "Sem acesso")
     from app.services.cash_closing import guard_period_access
 
-    guard_period_access(db, user, period_start, period_end)
+    guard_period_access(db, project_id, user, period_start, period_end)
     ps = db.query(ProjectPaymentSettings).filter(ProjectPaymentSettings.project_id == project_id).first()
     payments_q = (
         db.query(Payment)
@@ -193,4 +193,7 @@ def mark_paid(
     payment.status = PaymentStatus.pago
     payment.paid_at = datetime.now(timezone.utc)
     db.commit()
+    from app.services.automation_notifications import notify_payment_paid
+
+    notify_payment_paid(db, project_id, payment.id)
     return _payment_out(payment, ps)

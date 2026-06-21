@@ -145,13 +145,6 @@ export default function Usuarios() {
 
   const levelLabel = (l) => USER_LEVELS.find((x) => x.value === l)?.label || l;
 
-  const formatProjects = (u) => {
-    if (!u.projects.length) return "—";
-    return u.projects
-      .map((p) => (u.level === "admin" ? `${p.name} (lucro)` : `${p.name} (${p.commission_percent}%)`))
-      .join(", ");
-  };
-
   return (
     <div>
       <div className="page-header">
@@ -168,10 +161,8 @@ export default function Usuarios() {
           <thead>
             <tr>
               <th>Nome</th>
-              <th>Função</th>
               <th>Email</th>
               <th>Nível</th>
-              <th>Projetos</th>
               <th></th>
             </tr>
           </thead>
@@ -186,12 +177,10 @@ export default function Usuarios() {
                     {u.name}
                   </span>
                 </td>
-                <td>{u.role_function || "—"}</td>
                 <td>{u.email || "—"}</td>
                 <td>
                   <span className="badge">{levelLabel(u.level)}</span>
                 </td>
-                <td>{formatProjects(u)}</td>
                 <td className="actions">
                   <button type="button" className="btn btn-sm btn-ghost" onClick={() => openEdit(u)}>
                     Editar

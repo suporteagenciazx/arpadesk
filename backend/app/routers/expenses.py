@@ -77,6 +77,9 @@ def create_expense(
     db.commit()
     _invalidate_project_cache(project_id)
     db.refresh(expense)
+    from app.services.automation_notifications import notify_expense_changed
+
+    notify_expense_changed(db, project_id, expense, action="adicionada")
     return ExpenseOut(
         id=expense.id,
         expense_type=expense.expense_type,
@@ -114,6 +117,9 @@ def update_expense(
     db.commit()
     _invalidate_project_cache(project_id)
     db.refresh(expense)
+    from app.services.automation_notifications import notify_expense_changed
+
+    notify_expense_changed(db, project_id, expense, action="editada")
     return ExpenseOut(
         id=expense.id,
         expense_type=expense.expense_type,
@@ -139,6 +145,15 @@ def delete_expense(
     from app.services.cash_closing import assert_sales_expenses_writable
 
     assert_sales_expenses_writable(db, project_id, expense.expense_date, expense.expense_date, user)
+    snapshot = {
+        "expense_type": expense.expense_type,
+        "amount": float(expense.amount),
+        "expense_date": expense.expense_date.isoformat() if expense.expense_date else "",
+        "notes": expense.notes or "",
+    }
     db.delete(expense)
     db.commit()
     _invalidate_project_cache(project_id)
+    from app.services.automation_notifications import notify_expense_changed
+
+    notify_expense_changed(db, project_id, None, action="excluída", snapshot=snapshot)

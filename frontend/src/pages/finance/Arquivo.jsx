@@ -3,9 +3,10 @@ import { useNavigate, useParams } from "react-router-dom";
 import api from "../../lib/api";
 import FinanceTabGuard from "../../components/FinanceTabGuard";
 import Modal from "../../components/Modal";
-import { FilesIcon, DownloadIcon, PencilIcon, ChevronLeftIcon, ChevronRightIcon } from "../../components/Icons";
+import { FilesIcon, DownloadIcon, PencilIcon, UndoIcon, ChevronLeftIcon, ChevronRightIcon } from "../../components/Icons";
 import { useFinancePeriod } from "../../context/FinancePeriodContext";
 import { useCashClosing } from "../../context/CashClosingContext";
+import { useToast } from "../../context/ToastContext";
 import { fmtMoney } from "../../lib/constants";
 import { setReportEditSession } from "../../lib/reportEditSession";
 
@@ -16,6 +17,7 @@ export default function Arquivo() {
   const navigate = useNavigate();
   const period = useFinancePeriod();
   const { refreshClosing } = useCashClosing();
+  const { notify } = useToast();
   const [rows, setRows] = useState([]);
   const [view, setView] = useState("list");
   const [loading, setLoading] = useState(true);
@@ -26,6 +28,9 @@ export default function Arquivo() {
   const [editTarget, setEditTarget] = useState(null);
   const [editPassword, setEditPassword] = useState("");
   const [editing, setEditing] = useState(false);
+  const [restoreTarget, setRestoreTarget] = useState(null);
+  const [restorePassword, setRestorePassword] = useState("");
+  const [restoring, setRestoring] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -98,6 +103,36 @@ export default function Arquivo() {
     setError("");
   };
 
+  const openRestore = (row) => {
+    setRestoreTarget(row);
+    setRestorePassword("");
+    setError("");
+  };
+
+  const confirmRestore = async (e) => {
+    e.preventDefault();
+    if (!restoreTarget) return;
+    setRestoring(true);
+    setError("");
+    try {
+      const { data } = await api.post(
+        `/api/projects/${projectId}/report-archive/restore-as-active`,
+        { admin_password: restorePassword },
+        { params: { period_start: restoreTarget.period_start, period_end: restoreTarget.period_end } }
+      );
+      period.applyActivePeriodRange(data.period_start, data.period_end, data);
+      period.bumpReload();
+      setRestoreTarget(null);
+      setRestorePassword("");
+      load();
+      notify("Semana operacional restaurada como vigente.", "success");
+    } catch (err) {
+      setError(err.response?.data?.detail || "Erro ao restaurar semana vigente");
+    } finally {
+      setRestoring(false);
+    }
+  };
+
   const confirmEdit = async (e) => {
     e.preventDefault();
     if (!editTarget) return;
@@ -135,6 +170,19 @@ export default function Arquivo() {
       {downloadingKey === rowKey(row) ? "..." : "PDF"}
     </button>
   );
+
+  const restoreButton = (row) =>
+    row.is_active_period ? null : (
+      <button
+        type="button"
+        className="btn-icon project-action-btn archive-restore-btn"
+        title="Restaurar como semana vigente"
+        aria-label="Restaurar como semana vigente"
+        onClick={() => openRestore(row)}
+      >
+        <UndoIcon size={15} />
+      </button>
+    );
 
   const editButton = (row) => (
     <button
@@ -233,7 +281,10 @@ export default function Arquivo() {
                 <article key={rowKey(row)} className="archive-card card">
                   <div className="archive-card-top">
                     <code className="archive-card-code">{row.id || "—"}</code>
-                    {editButton(row)}
+                    <div className="archive-card-actions">
+                      {restoreButton(row)}
+                      {editButton(row)}
+                    </div>
                   </div>
                   <p className="archive-card-desc">{row.description}</p>
                   <div className="archive-card-metrics">
@@ -284,6 +335,7 @@ export default function Arquivo() {
                       </td>
                       <td className="archive-desc-cell">
                         <span>{row.description}</span>
+                        {restoreButton(row)}
                         {editButton(row)}
                       </td>
                       <td className="archive-billing-cell">{fmtMoney(row.billing_total)}</td>
@@ -308,6 +360,45 @@ export default function Arquivo() {
             {paginationBar}
           </>
         )}
+
+        <Modal
+          open={Boolean(restoreTarget)}
+          title="Restaurar semana vigente"
+          onClose={() => !restoring && setRestoreTarget(null)}
+        >
+          {restoreTarget && (
+            <form onSubmit={confirmRestore}>
+              <p>
+                Restaurar o período <strong>{restoreTarget.description}</strong> como semana operacional
+                vigente? O seletor <strong>Atual</strong> e o calendário do projeto passarão a considerar
+                esta semana — inclusive para demais usuários.
+              </p>
+              <label>
+                Senha de administrador
+                <input
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  value={restorePassword}
+                  onChange={(e) => setRestorePassword(e.target.value)}
+                />
+              </label>
+              <div className="form-actions">
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={restoring}
+                  onClick={() => setRestoreTarget(null)}
+                >
+                  Cancelar
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={restoring}>
+                  {restoring ? "Restaurando..." : "Confirmar restauração"}
+                </button>
+              </div>
+            </form>
+          )}
+        </Modal>
 
         <Modal
           open={Boolean(editTarget)}

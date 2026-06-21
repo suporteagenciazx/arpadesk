@@ -6,8 +6,13 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import Expense, Payment, PaymentStatus, Sale, SaleStatus, User
-from app.services.cash_closing import ensure_cash_closing_from_import, generate_report_public_id
+from app.models import Expense, Payment, PaymentStatus, Project, Sale, SaleStatus, User
+from app.services.active_period import advance_active_period_after_report_save, resolve_active_period
+from app.services.cash_closing import (
+    ensure_cash_closing_from_import,
+    generate_report_public_id,
+    get_cash_closing,
+)
 from app.services.finance import compute_commissions, compute_summary
 from app.services.report_import import append_import_log
 
@@ -119,6 +124,9 @@ def commit_report_save(
     user: User,
 ) -> dict:
     now = datetime.now(timezone.utc)
+    closing_before = get_cash_closing(db, project_id, period_start, period_end)
+    was_already_saved = bool(closing_before and closing_before.report_tabs_locked)
+
     payments = _period_payments(db, project_id, period_start, period_end)
     for payment in payments:
         if payment.status != PaymentStatus.pago:
@@ -162,4 +170,19 @@ def commit_report_save(
         created_by_id=user.id,
     )
     db.commit()
-    return build_report_save_preview(db, project_id, period_start, period_end)
+
+    project = db.get(Project, project_id)
+    next_start, next_end = None, None
+    if project:
+        if not was_already_saved:
+            next_start, next_end = advance_active_period_after_report_save(
+                db, project, period_start, period_end
+            )
+        else:
+            next_start, next_end = resolve_active_period(db, project)
+
+    preview = build_report_save_preview(db, project_id, period_start, period_end)
+    if next_start and next_end:
+        preview["next_active_period_start"] = next_start.isoformat()
+        preview["next_active_period_end"] = next_end.isoformat()
+    return preview

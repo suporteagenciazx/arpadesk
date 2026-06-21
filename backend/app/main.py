@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import asyncio
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,9 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import Base, SessionLocal, engine
 from app.database_migrations import run_migrations
-from app.routers import auth, cash_closings, expenses, fines, health, payments, projects, report_archive, report_imports, report_save, sales, telegram, users
+from app.routers import auth, automations, cash_closings, expenses, fines, health, payments, projects, report_archive, report_imports, report_save, sales, telegram, users
 from app.services.finance import seed_database
 from app.services.storage import ensure_bucket
+from app.services.closing_scheduler import closing_scheduler_loop
 
 
 @asynccontextmanager
@@ -21,7 +23,15 @@ async def lifespan(app: FastAPI):
         seed_database(db)
     finally:
         db.close()
-    yield
+    scheduler_task = asyncio.create_task(closing_scheduler_loop())
+    try:
+        yield
+    finally:
+        scheduler_task.cancel()
+        try:
+            await scheduler_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(
@@ -53,6 +63,7 @@ app.include_router(report_imports.router)
 app.include_router(report_archive.router)
 app.include_router(report_save.router)
 app.include_router(telegram.router)
+app.include_router(automations.router)
 
 
 @app.get("/")

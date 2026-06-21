@@ -4,7 +4,8 @@ import { useProject } from "../../context/ProjectContext";
 import { useAuth } from "../../context/AuthContext";
 import { FinancePeriodProvider, useFinancePeriod } from "../../context/FinancePeriodContext";
 import { CashClosingProvider, useCashClosing } from "../../context/CashClosingContext";
-import { FolderIcon } from "../../components/Icons";
+import { FolderIcon, SettingsIcon } from "../../components/Icons";
+import ProjectFinanceSettingsModal from "../../components/ProjectFinanceSettingsModal";
 import { canAccessFinanceTab } from "../../lib/permissions";
 import DateFilterBar from "../../components/DateFilterBar";
 import PeriodHint from "../../components/PeriodHint";
@@ -12,6 +13,7 @@ import FinanceImportModal from "../../components/FinanceImportModal";
 import Modal from "../../components/Modal";
 import SaveReportModal from "../../components/SaveReportModal";
 import { useToast } from "../../context/ToastContext";
+import { fmtDate } from "../../lib/constants";
 import api from "../../lib/api";
 import {
   clearReportEditSession,
@@ -28,36 +30,41 @@ const ALL_TABS = [
   { to: "pagamentos", label: "Pagamentos", key: "pagamentos" },
   { to: "relatorio", label: "Relatório", key: "relatorio" },
   { to: "arquivo", label: "Arquivo", key: "arquivo" },
+  { to: "automacoes", label: "Automações", key: "automacoes" },
 ];
 
 function FinanceLayoutInner() {
   const { projectId } = useParams();
   const location = useLocation();
-  const { project, clearProject } = useProject();
+  const { project, clearProject, updateProjectSettings } = useProject();
   const { user, isAdmin } = useAuth();
   const { notify } = useToast();
   const period = useFinancePeriod();
   const {
     frozen,
-    tabsLocked,
     isUnlocked,
     successOpen,
     setSuccessOpen,
     refreshClosing,
   } = useCashClosing();
+  const teamBlocked = !isAdmin && (!period.isTeamWeekOpen || frozen);
   const [saveReportOpen, setSaveReportOpen] = useState(false);
   const [saveReportPreview, setSaveReportPreview] = useState(null);
   const [loadingSaveReport, setLoadingSaveReport] = useState(false);
   const [savingReport, setSavingReport] = useState(false);
   const [editRecoveryOpen, setEditRecoveryOpen] = useState(false);
   const [discardingEdit, setDiscardingEdit] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const canOpenSettings = isAdmin || user?.level === "financeiro";
 
   const isRelatorio = location.pathname.endsWith("/relatorio");
   const isPagamentos = location.pathname.endsWith("/pagamentos");
   const isArquivo = location.pathname.endsWith("/arquivo");
+  const isAutomacoes = location.pathname.endsWith("/automacoes");
   const isVendas = location.pathname.endsWith("/vendas");
   const isDespesas = location.pathname.endsWith("/despesas");
-  const showPeriodChrome = !isArquivo;
+  const showPeriodChrome = !isArquivo && !isAutomacoes;
 
   const isReportEditing = useMemo(
     () =>
@@ -65,10 +72,7 @@ function FinanceLayoutInner() {
     [projectId, period.periodStart, period.periodEnd, isUnlocked]
   );
 
-  const showFreezeOverlay =
-    !isArquivo &&
-    !isAdmin &&
-    (frozen || ((isVendas || isDespesas) && tabsLocked));
+  const showFreezeOverlay = !isArquivo && !isAutomacoes && teamBlocked;
 
   const tabs = ALL_TABS.filter((t) => canAccessFinanceTab(user?.level, t.key));
 
@@ -111,14 +115,22 @@ function FinanceLayoutInner() {
   const confirmSaveReport = async () => {
     setSavingReport(true);
     try {
-      await api.post(`/api/projects/${projectId}/report-save`, null, { params: period.params() });
+      const { data } = await api.post(`/api/projects/${projectId}/report-save`, null, { params: period.params() });
       setSaveReportOpen(false);
       setSaveReportPreview(null);
       setEditRecoveryOpen(false);
       clearReportEditSession();
       await refreshClosing();
-      notify("Relatório salvo — período fechado oficialmente.", "success");
+      if (data.next_active_period_start && data.next_active_period_end) {
+        period.applyActivePeriodRange(data.next_active_period_start, data.next_active_period_end);
+      } else {
+        const active = await period.refreshActivePeriod();
+        if (active?.period_start && active?.period_end) {
+          period.applyActivePeriodRange(active.period_start, active.period_end);
+        }
+      }
       period.bumpReload();
+      notify("Relatório salvo — período fechado oficialmente.", "success");
     } catch (err) {
       notify(err.response?.data?.detail || "Erro ao salvar relatório", "error");
     } finally {
@@ -153,7 +165,7 @@ function FinanceLayoutInner() {
     <div>
       <div className="finance-top-bar">
         <div className="page-header finance-header">
-          <h2>Financeiro</h2>
+          <h2>{project?.name || "Projeto"}</h2>
         </div>
         <div className="finance-top-bar-actions">
           {isReportEditing && (
@@ -162,12 +174,24 @@ function FinanceLayoutInner() {
             </span>
           )}
           {project && (
-            <div className="project-context-badge">
-              <FolderIcon size={18} />
-              <span className="project-context-name">{project.name}</span>
-              <Link to="/financeiro" className="project-context-link" onClick={clearProject}>
-                Trocar projeto
-              </Link>
+            <div className="finance-project-actions">
+              {canOpenSettings && (
+                <button
+                  type="button"
+                  className="btn-icon project-settings-btn"
+                  title="Configurações do projeto"
+                  aria-label="Configurações do projeto"
+                  onClick={() => setSettingsOpen(true)}
+                >
+                  <SettingsIcon size={18} />
+                </button>
+              )}
+              <div className="project-context-badge">
+                <FolderIcon size={18} />
+                <Link to="/financeiro" className="project-context-link" onClick={clearProject}>
+                  Trocar projeto
+                </Link>
+              </div>
             </div>
           )}
         </div>
@@ -217,12 +241,7 @@ function FinanceLayoutInner() {
       )}
 
       {showPeriodChrome && !isPagamentos && (
-        <PeriodHint
-          start={period.periodStart}
-          end={period.periodEnd}
-          preset={period.preset}
-          weekInfo={period.weekInfo}
-        />
+        <PeriodHint activePeriod={period.activePeriod} />
       )}
 
       <div
@@ -234,6 +253,11 @@ function FinanceLayoutInner() {
         {showFreezeOverlay && (
           <div className="finance-freeze-overlay" role="status" aria-live="polite">
             <div className="finance-freeze-banner">CAIXA FECHADO</div>
+            {!period.isTeamWeekOpen && period.activePeriod?.next_opening_date && (
+              <p className="finance-freeze-subhint">
+                Abertura programada para {fmtDate(period.activePeriod.next_opening_date)}
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -306,6 +330,19 @@ function FinanceLayoutInner() {
           onConfirm={confirmSaveReport}
         />
       </Modal>
+
+      <ProjectFinanceSettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        projectId={projectId}
+        periodStart={period.periodStart}
+        periodEnd={period.periodEnd}
+        onSaved={(data) => {
+          updateProjectSettings({ finance_config: { closing_schedule: data.closing_schedule, bonus_rules: data.bonus_rules } });
+          period.applyPreset("atual");
+          notify("Configurações salvas.", "success");
+        }}
+      />
     </div>
   );
 }

@@ -1,8 +1,10 @@
 # 03 — Deploy na VPS
 
-Guia para subir o Arpadesk em staging e produção com Docker. Cobre deploy via **SSH + docker compose** e via **Portainer**.
+Guia para subir o Arpadesk em staging e produção com Docker + **Portainer**. Cobre deploy via **SSH + docker compose** e gestão pela UI do Portainer.
 
-> Leia também [05-variaveis-ambiente.md](./05-variaveis-ambiente.md) antes de editar o `.env` na VPS.
+> **Migrar dados do PC (AGENCIA, relatórios, CP):** [07-migracao-local-vps.md](./07-migracao-local-vps.md)  
+> **Variáveis `.env`:** [05-variaveis-ambiente.md](./05-variaveis-ambiente.md) — template VPS: `.env.vps.example`  
+> **Backup contínuo:** [04-manutencao-backup.md](./04-manutencao-backup.md)
 
 ---
 
@@ -27,7 +29,8 @@ Guia para subir o Arpadesk em staging e produção com Docker. Cobre deploy via 
 | **ENVIRONMENT** | `development` | `production` |
 | **Swagger `/docs`** | liberado | desabilitado ou restrito por IP |
 | **Fuso horário VPS** | N/A | `America/Sao_Paulo` (datas do backend) |
-| **Semana operacional** | Fuso do navegador | Seg–sex civil; ver [06-calendario-periodos.md](./06-calendario-periodos.md) |
+| **Semana operacional** | Fuso do navegador | Seg–sex civil + **semana aberta** do projeto; ver [06-calendario-periodos.md](./06-calendario-periodos.md) |
+| **Dados de teste local** | volumes `*_dev_*` | Migrar com [07-migracao-local-vps.md](./07-migracao-local-vps.md) |
 | **Firewall** | N/A | UFW: 22, 80, 443, 9443 |
 | **Backups** | opcional | cron `pg_dump` + volume uploads |
 | **Pastas na VPS** | — | `/srv/arpadesk-staging` e `/srv/arpadesk-prod` separados |
@@ -97,20 +100,30 @@ Acesse `https://IP_DA_VPS:9443` e crie o usuário admin do Portainer.
 
 ## Fase 2 — Deploy via SSH + docker compose
 
-### Staging
+### Staging (stack vazia — sem dados do PC)
 
 ```bash
-sudo mkdir -p /srv/arpadesk-staging
+sudo mkdir -p /srv/arpadesk-staging/backups
 sudo chown -R $USER:$USER /srv/arpadesk-staging
 cd /srv/arpadesk-staging
 git clone https://github.com/suporteagenciazx/arpadesk.git .
-cp .env.example .env
-nano .env   # ajustar DOMAIN, secrets, POSTGRES_PASSWORD
+cp .env.vps.example .env
+nano .env   # DOMAIN, secrets, POSTGRES_PASSWORD, VAULT_MASTER_KEY
 chmod 600 .env
 docker compose --env-file .env up -d --build
 docker compose ps
 docker compose logs -f backend
 ```
+
+### Staging com dados do PC (recomendado após testes locais)
+
+1. No **Windows**: `powershell -ExecutionPolicy Bypass -File .\scripts\backup-local.ps1`
+2. Envie `backups/migracao_*` para a VPS (`scp`)
+3. Na VPS: clone + `.env` (copie `VAULT_MASTER_KEY` e `S3_*` do local)
+4. Restaure **antes** do primeiro uso: `./scripts/restore-on-vps.sh`
+5. Suba tudo: `docker compose --env-file .env up -d --build`
+
+Passo a passo completo: [07-migracao-local-vps.md](./07-migracao-local-vps.md).
 
 ### Produção
 
@@ -199,27 +212,42 @@ A stack aparece automaticamente no Portainer em **Stacks**.
 
 | Onde | O que conferir |
 |------|----------------|
-| Stacks → arpadesk-staging | 4 containers **running** (postgres, backend, frontend, caddy) |
-| backend → Logs | Sem erro de conexão PostgreSQL |
+| Stacks → arpadesk-staging | **6 containers** running: postgres, minio, redis, backend, frontend, caddy |
+| backend → Logs | Sem erro de conexão PostgreSQL / MinIO |
 | caddy → Logs | Certificado Let's Encrypt emitido |
-| Volumes | `pg_data`, `uploads_data`, `caddy_data` criados |
+| Volumes | `pg_data`, `minio_data`, `redis_data`, `uploads_data`, `caddy_data` |
+| minio / redis | Running — **sem** porta publicada no host (só rede `appnet`) |
 
 ---
 
 ## Checklist pós-deploy
 
+### Infraestrutura
+
 - [ ] `https://DOMAIN` abre sem erro de certificado
 - [ ] `https://DOMAIN/api/health` retorna JSON ok
-- [ ] Frontend carrega via HTTPS
-- [ ] Postgres **não** acessível externamente (porta 5432 fechada)
-- [ ] Senha seed admin trocada
-- [ ] `VAULT_MASTER_KEY` anotada em local seguro offline
-- [ ] Backup configurado — [04-manutencao-backup.md](./04-manutencao-backup.md)
+- [ ] Frontend carrega via HTTPS (login, menu projetos)
+- [ ] Postgres, Redis, MinIO **não** acessíveis de fora da VPS
+- [ ] `timedatectl` = `America/Sao_Paulo`
+- [ ] `VAULT_MASTER_KEY` anotada offline
+- [ ] Backup cron configurado — [04-manutencao-backup.md](./04-manutencao-backup.md)
+
+### Se migrou dados do PC
+
+- [ ] Login com usuário existente (não depende do seed)
+- [ ] Projeto **AGENCIA** com vendas/despesas/relatórios
+- [ ] Admin: **Atual** = mesma semana aberta do PC
+- [ ] Download de comprovante funciona
+- [ ] Aba **Arquivo** lista relatórios salvos
 
 Teste rápido:
 
 ```bash
 curl -s https://arpadesk-staging.seudominio.com.br/api/health
+
+# Semana aberta (substitua DB se prod)
+docker compose exec -T postgres psql -U arpadesk -d arpadesk_staging -c \
+  "SELECT slug, settings->'finance_config'->'active_period' FROM projects WHERE slug='agencia';"
 ```
 
 ---

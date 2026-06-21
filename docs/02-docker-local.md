@@ -97,3 +97,13 @@ docker system prune -f
 ## Diferença para produção
 
 Este compose **não** inclui Caddy nem build estático do frontend. Para deploy na VPS use `docker-compose.yml` — veja [03-deploy-vps.md](./03-deploy-vps.md).
+
+## Backup para migração VPS
+
+Antes de subir na VPS com os mesmos dados de teste (projeto AGENCIA, relatórios, CP):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\backup-local.ps1
+```
+
+Envie a pasta `backups/migracao_*` para a VPS e siga [07-migracao-local-vps.md](./07-migracao-local-vps.md).

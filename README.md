@@ -30,17 +30,26 @@ docker compose -f docker-compose.dev.yml up --build
 | [docs/01-setup-dev-local.md](./docs/01-setup-dev-local.md) | Primeiro run no Windows |
 | [docs/02-docker-local.md](./docs/02-docker-local.md) | Comandos Docker do dia a dia |
 | [docs/03-deploy-vps.md](./docs/03-deploy-vps.md) | Deploy VPS (SSH + Portainer) |
+| [docs/07-migracao-local-vps.md](./docs/07-migracao-local-vps.md) | **Migrar dados do PC para VPS** |
 | [docs/05-variaveis-ambiente.md](./docs/05-variaveis-ambiente.md) | Referência de variáveis `.env` |
+| [docs/06-calendario-periodos.md](./docs/06-calendario-periodos.md) | Semana operacional e caixa fechado |
 | [docs/PLANO-MVP.md](./docs/PLANO-MVP.md) | Plano de produto e fases |
 
 ## Deploy VPS
 
 ```bash
-cp .env.example .env   # ajustar DOMAIN, secrets e DATABASE_URL (host postgres)
+cp .env.vps.example .env   # ajustar DOMAIN, secrets, DATABASE_URL
 docker compose --env-file .env up -d --build
 ```
 
-Guia completo: [docs/03-deploy-vps.md](./docs/03-deploy-vps.md)
+- Deploy completo: [docs/03-deploy-vps.md](./docs/03-deploy-vps.md)
+- **Levar dados do teste local (AGENCIA):** [docs/07-migracao-local-vps.md](./docs/07-migracao-local-vps.md)
+
+### Backup local antes de subir na VPS
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\backup-local.ps1
+```
 
 ## Estrutura
 

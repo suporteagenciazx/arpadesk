@@ -30,7 +30,8 @@ export default function Despesas() {
   const { isAdmin } = useAuth();
   const { frozen, tabsLocked } = useCashClosing();
   const actionEnabled = period.isActionPeriod && !period.hasDraft;
-  const canEdit = actionEnabled && !tabsLocked && (isAdmin || !frozen);
+  const canOperate = isAdmin || (period.isTeamWeekOpen && !frozen);
+  const canEdit = actionEnabled && !tabsLocked && canOperate;
 
   const load = async () => {
     if (period.hasDraft && period.importDraft?.preview?.expenses) {
@@ -113,7 +114,9 @@ export default function Despesas() {
 
   const lockedTitle = tabsLocked
     ? "Relatório salvo — edite pela aba Arquivo para alterar"
-    : frozen
+    : !period.isTeamWeekOpen
+      ? "Semana ainda não abriu para operação"
+      : frozen
       ? "Caixa fechado"
       : !period.isActionPeriod
         ? "Disponível apenas no período atual (filtro Atual)"

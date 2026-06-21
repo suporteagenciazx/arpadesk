@@ -13,13 +13,25 @@ export function ProjectProvider({ children }) {
     localStorage.setItem("arpadesk_project", JSON.stringify(p));
   };
 
+  const updateProjectSettings = (partialSettings) => {
+    setProject((prev) => {
+      if (!prev) return prev;
+      const next = {
+        ...prev,
+        settings: { ...(prev.settings || {}), ...partialSettings },
+      };
+      localStorage.setItem("arpadesk_project", JSON.stringify(next));
+      return next;
+    });
+  };
+
   const clearProject = () => {
     setProject(null);
     localStorage.removeItem("arpadesk_project");
   };
 
   return (
-    <ProjectContext.Provider value={{ project, selectProject, clearProject }}>
+    <ProjectContext.Provider value={{ project, selectProject, updateProjectSettings, clearProject }}>
       {children}
     </ProjectContext.Provider>
   );

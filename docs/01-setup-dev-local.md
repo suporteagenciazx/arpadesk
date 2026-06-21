@@ -109,5 +109,6 @@ Usuários demo criados no seed (desenvolvimento):
 - Comandos do dia a dia: [02-docker-local.md](./02-docker-local.md)
 - Variáveis de ambiente: [05-variaveis-ambiente.md](./05-variaveis-ambiente.md)
 - Calendário e filtros de período: [06-calendario-periodos.md](./06-calendario-periodos.md)
+- Subir na VPS com os mesmos dados: [07-migracao-local-vps.md](./07-migracao-local-vps.md)
 - O que construir: [PLANO-MVP.md](./PLANO-MVP.md)
 

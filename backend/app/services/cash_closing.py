@@ -11,6 +11,7 @@ from app.models import (
     CashClosing,
     CashClosingStatus,
     PeriodFine,
+    Project,
     ProjectMember,
     Sale,
     SaleStatus,
@@ -19,7 +20,6 @@ from app.models import (
     UserPrivilege,
 )
 from app.privileges_catalog import PRIVILEGE_CASH_CLOSING, PRIVILEGE_CODES, PRIVILEGE_FULL_HISTORY
-from app.services.calendar import operational_week_range
 from app.services.finance import compute_summary
 
 
@@ -79,7 +79,11 @@ def get_cash_closing(
 
 
 def user_can_access_period(
-    db: Session, user: User, period_start: date | None, period_end: date | None
+    db: Session,
+    project_id: int,
+    user: User,
+    period_start: date | None,
+    period_end: date | None,
 ) -> bool:
     if user.level == UserLevel.admin:
         return True
@@ -87,22 +91,32 @@ def user_can_access_period(
         return True
     if not period_start or not period_end:
         return False
-    cur_start, cur_end = operational_week_range()
-    return period_start == cur_start and period_end == cur_end
+    project = db.get(Project, project_id)
+    if not project:
+        return False
+    from app.services.active_period import resolve_active_period
+
+    active_start, active_end = resolve_active_period(db, project)
+    return period_start == active_start and period_end == active_end
 
 
 def assert_period_accessible_for_user(
-    db: Session, user: User, period_start: date | None, period_end: date | None
+    db: Session,
+    project_id: int,
+    user: User,
+    period_start: date | None,
+    period_end: date | None,
 ) -> None:
-    if not user_can_access_period(db, user, period_start, period_end):
+    if not user_can_access_period(db, project_id, user, period_start, period_end):
         raise HTTPException(
             403,
-            "Sem privilégio de histórico completo — apenas o período atual está disponível.",
+            "Sem privilégio de histórico completo — apenas a semana aberta do projeto está disponível.",
         )
 
 
 def guard_period_access(
     db: Session,
+    project_id: int,
     user: User,
     period_start: str | None,
     period_end: str | None,
@@ -110,7 +124,7 @@ def guard_period_access(
     if not period_start or not period_end:
         return
     assert_period_accessible_for_user(
-        db, user, date.fromisoformat(period_start), date.fromisoformat(period_end)
+        db, project_id, user, date.fromisoformat(period_start), date.fromisoformat(period_end)
     )
 
 
@@ -146,13 +160,19 @@ def is_period_frozen_for_user(
         return False
     if not period_start or not period_end:
         return False
+    project = db.get(Project, project_id)
+    if project:
+        from app.services.active_period import resolve_active_period
+
+        active_start, active_end = resolve_active_period(db, project)
+        if period_start == active_start and period_end == active_end:
+            if date.today() < active_start:
+                return True
     closing = get_cash_closing(db, project_id, period_start, period_end)
     if not closing:
         return False
     if closing.reopened_at:
         if closing.reopen_scope == "all":
-            return False
-        if user.level == UserLevel.admin:
             return False
         return True
     return True
@@ -161,7 +181,7 @@ def is_period_frozen_for_user(
 def assert_period_writable(
     db: Session, project_id: int, period_start: date | None, period_end: date | None, user: User
 ) -> None:
-    assert_period_accessible_for_user(db, user, period_start, period_end)
+    assert_period_accessible_for_user(db, project_id, user, period_start, period_end)
     if is_period_frozen_for_user(db, project_id, period_start, period_end, user):
         raise HTTPException(
             403,
@@ -172,17 +192,31 @@ def assert_period_writable(
 def assert_sales_expenses_writable(
     db: Session, project_id: int, period_start: date | None, period_end: date | None, user: User
 ) -> None:
-    assert_period_accessible_for_user(db, user, period_start, period_end)
+    assert_period_accessible_for_user(db, project_id, user, period_start, period_end)
+    if is_period_frozen_for_user(db, project_id, period_start, period_end, user):
+        project = db.get(Project, project_id)
+        if project and period_start and period_end:
+            from app.services.active_period import resolve_active_period
+
+            active_start, active_end = resolve_active_period(db, project)
+            if (
+                period_start == active_start
+                and period_end == active_end
+                and date.today() < active_start
+            ):
+                raise HTTPException(
+                    403,
+                    "Semana ainda não abriu para operação — aguarde a data programada.",
+                )
+        raise HTTPException(
+            403,
+            "Período com fechamento de caixa — apenas o administrador pode alterar dados.",
+        )
     closing = get_cash_closing(db, project_id, period_start, period_end)
     if is_report_tabs_locked(closing):
         raise HTTPException(
             403,
             "Relatório salvo — reabra o caixa para alterar vendas ou despesas.",
-        )
-    if is_period_frozen_for_user(db, project_id, period_start, period_end, user):
-        raise HTTPException(
-            403,
-            "Período com fechamento de caixa — apenas o administrador pode alterar dados.",
         )
 
 
@@ -321,10 +355,25 @@ def create_cash_closing(
     period_start: date,
     period_end: date,
     user: User,
+    *,
+    skip_privilege_check: bool = False,
 ) -> CashClosing:
-    if not user_has_privilege(db, user, PRIVILEGE_CASH_CLOSING):
+    if not skip_privilege_check and not user_has_privilege(db, user, PRIVILEGE_CASH_CLOSING):
         raise HTTPException(403, "Sem privilégio de fechamento de caixa")
-    assert_period_accessible_for_user(db, user, period_start, period_end)
+    assert_period_accessible_for_user(db, project_id, user, period_start, period_end)
+
+    project = db.get(Project, project_id)
+    if project and not skip_privilege_check:
+        from app.services.project_finance_config import (
+            is_closing_mode_allowed,
+            is_within_manual_closing_window,
+        )
+
+        scope = "daily" if period_start == period_end else "weekly"
+        if not is_closing_mode_allowed(project, scope=scope, mode_needed="manual"):
+            raise HTTPException(400, "Fechamento manual desabilitado nas configurações do projeto")
+        if scope == "weekly" and not is_within_manual_closing_window(project):
+            raise HTTPException(400, "Fora do dia/horário configurado para fechamento manual")
 
     existing = get_cash_closing(db, project_id, period_start, period_end)
     if existing:
@@ -341,7 +390,7 @@ def create_cash_closing(
             existing.confirmed_by_id = user.id
             existing.confirmed_at = now
             db.commit()
-            return (
+            closing = (
                 db.query(CashClosing)
                 .options(
                     joinedload(CashClosing.closed_by),
@@ -351,6 +400,10 @@ def create_cash_closing(
                 .filter(CashClosing.id == existing.id)
                 .first()
             )
+            from app.services.automation_notifications import notify_cash_closing_by_non_admin
+
+            notify_cash_closing_by_non_admin(db, project_id, closing.id, user)
+            return closing
         raise HTTPException(400, "Já existe fechamento de caixa para este período")
 
     snapshot = build_cash_closing_snapshot(db, project_id, period_start, period_end)
@@ -369,7 +422,7 @@ def create_cash_closing(
     db.add(closing)
     db.commit()
     db.refresh(closing)
-    return (
+    closing = (
         db.query(CashClosing)
         .options(
             joinedload(CashClosing.closed_by),
@@ -379,6 +432,42 @@ def create_cash_closing(
         .filter(CashClosing.id == closing.id)
         .first()
     )
+    from app.services.automation_notifications import notify_cash_closing_by_non_admin
+
+    notify_cash_closing_by_non_admin(db, project_id, closing.id, user)
+    return closing
+
+
+def try_automatic_cash_closing(
+    db: Session, project_id: int, period_start: date, period_end: date
+) -> bool:
+    """Fecha caixa automaticamente se ainda não existir registro. Retorna True se fechou."""
+    if get_cash_closing(db, project_id, period_start, period_end):
+        return False
+    admin = (
+        db.query(User)
+        .filter(User.level == UserLevel.admin, User.is_active.is_(True))
+        .order_by(User.id.asc())
+        .first()
+    )
+    if not admin:
+        return False
+    try:
+        closing = create_cash_closing(
+            db,
+            project_id,
+            period_start,
+            period_end,
+            admin,
+            skip_privilege_check=True,
+        )
+        snap = dict(closing.summary_snapshot or {})
+        snap["closed_via"] = "automatic"
+        closing.summary_snapshot = snap
+        db.commit()
+        return True
+    except HTTPException:
+        return False
 
 
 def confirm_cash_closing(
@@ -435,10 +524,19 @@ def unlock_cash_closing(
     if not closing:
         raise HTTPException(404, "Fechamento de caixa não encontrado")
 
+    was_report_saved = bool(closing.report_tabs_locked)
     closing.reopened_at = datetime.now(timezone.utc)
     closing.reopened_by_id = admin.id
     closing.reopen_scope = "all"
     closing.report_tabs_locked = False
+
+    if not was_report_saved:
+        project = db.get(Project, project_id)
+        if project:
+            from app.services.active_period import sync_active_period_to
+
+            sync_active_period_to(db, project, period_start, period_end)
+
     db.commit()
     return (
         db.query(CashClosing)
@@ -483,10 +581,19 @@ def reopen_cash_closing(
     if closing.reopened_at:
         return closing
 
+    was_report_saved = bool(closing.report_tabs_locked)
     closing.reopened_at = datetime.now(timezone.utc)
     closing.reopened_by_id = user.id
     closing.reopen_scope = scope
     closing.report_tabs_locked = False
+
+    if scope == "all" and not was_report_saved:
+        project = db.get(Project, project_id)
+        if project:
+            from app.services.active_period import sync_active_period_to
+
+            sync_active_period_to(db, project, period_start, period_end)
+
     db.commit()
     return (
         db.query(CashClosing)

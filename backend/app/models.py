@@ -52,6 +52,16 @@ class TelegramSendMode(str, enum.Enum):
     user = "user"
 
 
+class ProjectAutomationType(str, enum.Enum):
+    sale_registration = "sale_registration"
+    sale_confirmation = "sale_confirmation"
+    cash_closing = "cash_closing"
+    goal_reached = "goal_reached"
+    payment_paid = "payment_paid"
+    fine_added = "fine_added"
+    expense_changed = "expense_changed"
+
+
 class CashClosingStatus(str, enum.Enum):
     pending_admin = "pending_admin"
     confirmed = "confirmed"
@@ -134,6 +144,28 @@ class Project(Base):
     cash_closings: Mapped[list["CashClosing"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
+    automations: Mapped[list["ProjectAutomation"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+
+
+class ProjectAutomation(Base):
+    __tablename__ = "project_automations"
+    __table_args__ = (
+        UniqueConstraint("project_id", "automation_key", name="uq_project_automation_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    automation_key: Mapped[ProjectAutomationType] = mapped_column(Enum(ProjectAutomationType))
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    config: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    project: Mapped["Project"] = relationship(back_populates="automations")
 
 
 class CashClosing(Base):
@@ -346,6 +378,12 @@ class TelegramSettings(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, default=1)
     bot_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    registration_bot_id: Mapped[int | None] = mapped_column(
+        ForeignKey("telegram_bots.id", ondelete="SET NULL"), nullable=True
+    )
+    confirmation_bot_id: Mapped[int | None] = mapped_column(
+        ForeignKey("telegram_bots.id", ondelete="SET NULL"), nullable=True
+    )
     chat_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     send_mode: Mapped[TelegramSendMode] = mapped_column(Enum(TelegramSendMode), default=TelegramSendMode.group)
     message_template: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -363,4 +401,17 @@ class TelegramSettings(Base):
     confirmation_template: Mapped[str | None] = mapped_column(Text, nullable=True)
     notify_on_confirmation: Mapped[bool] = mapped_column(Boolean, default=True)
     attach_cp_on_confirmation: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class TelegramBot(Base):
+    __tablename__ = "telegram_bots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(120))
+    username: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    bot_token: Mapped[str] = mapped_column(String(255))
+    avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

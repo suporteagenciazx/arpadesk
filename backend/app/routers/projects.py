@@ -16,11 +16,14 @@ from app.models import (
     UserLevel,
 )
 from app.schemas import (
+    ActivePeriodOut,
     FinanceSummary,
     PaymentSettingsIn,
     PaymentSettingsOut,
     ProjectCreate,
     ProjectDeleteRequest,
+    ProjectFinanceConfigOut,
+    ProjectFinanceConfigPatch,
     ProjectMemberIn,
     ProjectMemberOut,
     ProjectOut,
@@ -29,6 +32,8 @@ from app.schemas import (
 )
 from app.services.finance import compute_summary, compute_report, slugify
 from app.services.cache import cached_json, cache_delete_prefix
+from app.services.project_finance_config import get_finance_config, save_finance_config
+from app.services.active_period import active_period_to_dict
 from app.auth_utils import verify_password
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -162,6 +167,84 @@ def patch_project_settings(
     db.commit()
     db.refresh(project)
     return _project_out(project)
+
+
+@router.get("/{project_id}/active-period", response_model=ActivePeriodOut)
+def get_active_period(
+    project_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not user_has_project_access(db, user, project_id):
+        raise HTTPException(403, "Sem acesso ao projeto")
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Projeto não encontrado")
+    return ActivePeriodOut(**active_period_to_dict(db, project))
+
+
+@router.get("/{project_id}/finance-config", response_model=ProjectFinanceConfigOut)
+def get_finance_config_endpoint(
+    project_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if user.level not in (UserLevel.admin, UserLevel.financeiro):
+        raise HTTPException(403, "Sem permissão")
+    if not user_has_project_access(db, user, project_id):
+        raise HTTPException(403, "Sem acesso ao projeto")
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Projeto não encontrado")
+    config = get_finance_config(project)
+    members = (
+        db.query(ProjectMember)
+        .options(joinedload(ProjectMember.user))
+        .filter(ProjectMember.project_id == project_id)
+        .all()
+    )
+    return ProjectFinanceConfigOut(
+        closing_schedule=config["closing_schedule"],
+        bonus_rules=config["bonus_rules"],
+        members=[
+            ProjectMemberOut(
+                id=m.id,
+                user_id=m.user_id,
+                user_name=m.user.name,
+                user_level=m.user.level,
+                commission_percent=float(m.commission_percent or 0),
+            )
+            for m in members
+        ],
+    )
+
+
+@router.patch("/{project_id}/finance-config", response_model=ProjectFinanceConfigOut)
+def patch_finance_config(
+    project_id: int,
+    data: ProjectFinanceConfigPatch,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if user.level not in (UserLevel.admin, UserLevel.financeiro):
+        raise HTTPException(403, "Sem permissão")
+    if not user_has_project_access(db, user, project_id):
+        raise HTTPException(403, "Sem acesso ao projeto")
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Projeto não encontrado")
+    patch = data.model_dump(exclude_unset=True)
+    if data.closing_schedule:
+        patch["closing_schedule"] = data.closing_schedule.model_dump(exclude_unset=True)
+    if data.bonus_rules is not None:
+        patch["bonus_rules"] = [r.model_dump() for r in data.bonus_rules]
+    try:
+        save_finance_config(project, patch)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    db.commit()
+    db.refresh(project)
+    return get_finance_config_endpoint(project_id, user, db)
 
 
 @router.get("/{project_id}/members", response_model=list[ProjectMemberOut])

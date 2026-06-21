@@ -49,11 +49,23 @@ export function getMondayOfWeek(refDate = new Date()) {
   return addDays(d, diff);
 }
 
-/** Semana operacional: segunda a sexta da semana civil que contém refDate. */
-export function getOperationalWeekRange(refDate = new Date()) {
+export function getOperationalWeekRange(refDate = new Date(), financeConfig = null) {
   const monday = getMondayOfWeek(refDate);
   const friday = addDays(monday, 4);
-  return { start: toLocalIso(monday), end: toLocalIso(friday) };
+  if (!financeConfig) {
+    return { start: toLocalIso(monday), end: toLocalIso(friday) };
+  }
+  const mondayIso = toLocalIso(monday);
+  const weekly = financeConfig?.closing_schedule?.weekly;
+  const override = weekly?.current_week;
+
+  if (override?.period_start === mondayIso && override?.period_end) {
+    return { start: override.period_start, end: override.period_end };
+  }
+
+  const weekday = weekly?.default_weekday ?? 5;
+  const endDay = addDays(monday, Math.max(1, Math.min(5, weekday)) - 1);
+  return { start: mondayIso, end: toLocalIso(endDay) };
 }
 
 export function shiftOperationalWeek(startIso, endIso, weeksDelta) {
@@ -102,13 +114,13 @@ export function todayLocalIso() {
   return toLocalIso(new Date());
 }
 
-export function getPresetRange(preset, refDate = new Date()) {
+export function getPresetRange(preset, refDate = new Date(), financeConfig = null) {
   const today = startOfDay(refDate);
   const end = toLocalIso(today);
 
   switch (preset) {
     case "atual":
-      return getOperationalWeekRange(today);
+      return getOperationalWeekRange(today, financeConfig);
     case "today":
       return { start: end, end };
     case "7d":
@@ -129,8 +141,8 @@ export function getPresetRange(preset, refDate = new Date()) {
 }
 
 /** Período exibido é a semana operacional atual (preset «Atual»). */
-export function isCurrentOperationalPeriod(periodStart, periodEnd) {
-  const atual = getPresetRange("atual");
+export function isCurrentOperationalPeriod(periodStart, periodEnd, financeConfig = null) {
+  const atual = getPresetRange("atual", new Date(), financeConfig);
   return periodStart === atual.start && periodEnd === atual.end;
 }
 

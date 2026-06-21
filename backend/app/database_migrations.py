@@ -115,6 +115,40 @@ def run_migrations() -> None:
         "ALTER TABLE cash_closings ADD COLUMN IF NOT EXISTS report_public_id VARCHAR(5)",
         "ALTER TABLE cash_closings ADD COLUMN IF NOT EXISTS report_tabs_locked BOOLEAN DEFAULT FALSE",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_cash_closing_report_public_id ON cash_closings (project_id, report_public_id) WHERE report_public_id IS NOT NULL",
+        """CREATE TABLE IF NOT EXISTS telegram_bots (
+            id SERIAL PRIMARY KEY,
+            display_name VARCHAR(120) NOT NULL,
+            username VARCHAR(100),
+            bot_token VARCHAR(255) NOT NULL,
+            avatar_url TEXT,
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )""",
+        "ALTER TABLE telegram_settings ADD COLUMN IF NOT EXISTS registration_bot_id INTEGER REFERENCES telegram_bots(id) ON DELETE SET NULL",
+        "ALTER TABLE telegram_settings ADD COLUMN IF NOT EXISTS confirmation_bot_id INTEGER REFERENCES telegram_bots(id) ON DELETE SET NULL",
+        """INSERT INTO telegram_bots (display_name, username, bot_token, is_active)
+           SELECT 'Bot principal', NULL, bot_token, TRUE
+           FROM telegram_settings
+           WHERE id = 1 AND bot_token IS NOT NULL AND TRIM(bot_token) <> ''
+           AND NOT EXISTS (SELECT 1 FROM telegram_bots LIMIT 1)""",
+        """CREATE TABLE IF NOT EXISTS project_automations (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            automation_key VARCHAR(40) NOT NULL,
+            name VARCHAR(120) NOT NULL,
+            description TEXT,
+            is_enabled BOOLEAN DEFAULT FALSE,
+            config JSONB DEFAULT '{}',
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW(),
+            CONSTRAINT uq_project_automation_key UNIQUE (project_id, automation_key)
+        )""",
+        "ALTER TYPE projectautomationtype ADD VALUE IF NOT EXISTS 'cash_closing'",
+        "ALTER TYPE projectautomationtype ADD VALUE IF NOT EXISTS 'goal_reached'",
+        "ALTER TYPE projectautomationtype ADD VALUE IF NOT EXISTS 'payment_paid'",
+        "ALTER TYPE projectautomationtype ADD VALUE IF NOT EXISTS 'fine_added'",
+        "ALTER TYPE projectautomationtype ADD VALUE IF NOT EXISTS 'expense_changed'",
     ]
     with engine.begin() as conn:
         for stmt in statements:

@@ -1,12 +1,24 @@
 import { fmtDate } from "../lib/constants";
+import { formatWeekInfo, todayLocalIso } from "../lib/calendar";
 
-export default function PeriodHint({ start, end, preset, weekInfo }) {
-  if (!start && !end) return null;
+export default function PeriodHint({ activePeriod }) {
+  const today = todayLocalIso();
+  const openingDate = activePeriod?.next_opening_date || activePeriod?.period_start;
+  const beforeOpen = Boolean(openingDate && today < openingDate);
+  const activeWeekInfo =
+    activePeriod?.period_start && activePeriod?.period_end
+      ? formatWeekInfo(activePeriod.period_start, activePeriod.period_end)
+      : null;
+
   return (
-    <p className="hint report-period">
-      {weekInfo?.isOperational && <span className="week-badge">{weekInfo.label} · </span>}
-      Período: {fmtDate(start)} — {fmtDate(end)}
-      {preset === "atual" && " (semana operacional — segunda a sexta)"}
-    </p>
+    <div className="period-status-block">
+      <p className="hint report-period period-status-line">🟢 Hoje {fmtDate(today)}</p>
+      {beforeOpen && openingDate && (
+        <p className="hint report-period period-status-line period-status-opening-line">
+          · Próxima abertura de caixa programada para {fmtDate(openingDate)}
+          {activeWeekInfo?.label ? ` (${activeWeekInfo.label})` : ""}
+        </p>
+      )}
+    </div>
   );
 }

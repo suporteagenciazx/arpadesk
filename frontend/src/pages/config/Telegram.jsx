@@ -1,275 +1,211 @@
 import { useEffect, useState } from "react";
 import api from "../../lib/api";
+import Modal from "../../components/Modal";
+import { PencilIcon, TrashIcon } from "../../components/Icons";
 
-const DEFAULT_REGISTRATION =
-  "📝 Nova venda registrada\nProjeto: {{projeto}}\nCódigo: {{sale_code}}\nAgente: {{agente}}\nValor: R$ {{valor}}\nStatus: {{status}}";
+const apiError = (err, fallback) => {
+  const detail = err?.response?.data?.detail;
+  if (Array.isArray(detail)) {
+    return detail.map((d) => d.msg || String(d)).join(", ");
+  }
+  if (typeof detail === "object" && detail !== null) {
+    return JSON.stringify(detail);
+  }
+  return detail || fallback;
+};
 
-const DEFAULT_CONFIRMATION =
-  "✅ Venda confirmada {{sale_code}} no projeto {{projeto}}\nAgente: {{agente}}\nValor: R$ {{valor}}\nStatus: {{status}}\nSaldo (lucro): R$ {{balance}}";
-
-function VariableChips({ groups, filterGroups, onInsert }) {
-  const visible = filterGroups
-    ? groups.filter((g) => filterGroups.includes(g.group))
-    : groups;
-
+function BotConnectionCard({ bot, onEdit, onDelete, onToggleActive, toggling }) {
+  const handle = bot.username ? `@${bot.username}` : "sem @";
   return (
-    <div className="telegram-vars">
-      {visible.map((group) => (
-        <div key={group.group} className="telegram-var-group">
-          <strong>{group.group}</strong>
-          <div className="telegram-var-list">
-            {group.variables.map((v) => (
-              <button
-                key={v.key}
-                type="button"
-                className="var-chip"
-                onClick={() => onInsert(v.key)}
-                title={v.description}
-              >
-                {`{{${v.key}}}`}
-              </button>
-            ))}
-          </div>
+    <div className={`project-card telegram-connection-card${bot.is_active ? "" : " telegram-connection-card--inactive"}`}>
+      <div className="project-card-actions">
+        <button
+          type="button"
+          className="btn-icon project-action-btn"
+          title="Editar bot"
+          aria-label="Editar bot"
+          onClick={() => onEdit(bot)}
+        >
+          <PencilIcon size={16} />
+        </button>
+        <button
+          type="button"
+          className="btn-icon project-action-btn project-action-btn--danger"
+          title="Excluir bot"
+          aria-label="Excluir bot"
+          onClick={() => onDelete(bot)}
+        >
+          <TrashIcon size={16} />
+        </button>
+      </div>
+      <div className="project-card-open telegram-connection-card-body">
+        <div className="project-card-icon telegram-connection-avatar">
+          {bot.avatar_url ? (
+            <img src={bot.avatar_url} alt="" />
+          ) : (
+            <span>{(bot.display_name || "B").charAt(0).toUpperCase()}</span>
+          )}
         </div>
-      ))}
-    </div>
-  );
-}
-
-function ChatPicker({ chats, onSelect }) {
-  if (!chats.length) return null;
-  return (
-    <div className="telegram-chat-list">
-      <strong>Conversas recentes do bot</strong>
-      <ul>
-        {chats.map((c) => (
-          <li key={c.id}>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => onSelect(c.id)}>
-              Usar {c.id}
-            </button>
-            <span>
-              {c.title} ({c.type})
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function DestinationFields({ chatId, sendMode, onChatIdChange, onSendModeChange }) {
-  return (
-    <div className="form-grid">
-      <label>
-        Destino (grupo / canal / usuário)
-        <input
-          placeholder="-1001234567890"
-          value={chatId}
-          onChange={(e) => onChatIdChange(e.target.value)}
-          required
-        />
-        <span className="hint-inline">Supergrupos usam ID no formato -100… (ajustado ao salvar).</span>
-      </label>
-      <label>
-        Tipo de destino
-        <select value={sendMode} onChange={(e) => onSendModeChange(e.target.value)}>
-          <option value="group">Grupo</option>
-          <option value="channel">Canal</option>
-          <option value="user">Usuário específico</option>
-        </select>
-      </label>
+        <strong>{bot.display_name}</strong>
+        <span className="muted">{handle}</span>
+      </div>
+      <div className="telegram-connection-card-footer">
+        <span className={`telegram-bot-status ${bot.is_active ? "is-active" : ""}`}>
+          {bot.is_active ? "Ativo" : "Inativo"}
+        </span>
+        <button
+          type="button"
+          className={`switch ${bot.is_active ? "on" : ""}`}
+          role="switch"
+          aria-checked={bot.is_active}
+          aria-label={bot.is_active ? "Desativar bot" : "Ativar bot"}
+          disabled={toggling}
+          onClick={() => onToggleActive(bot)}
+        >
+          <span className="switch-thumb" />
+        </button>
+      </div>
     </div>
   );
 }
 
 export default function Telegram() {
-  const [botToken, setBotToken] = useState("");
-  const [hasToken, setHasToken] = useState(false);
-
-  const [regChatId, setRegChatId] = useState("");
-  const [regSendMode, setRegSendMode] = useState("group");
-  const [regTemplate, setRegTemplate] = useState(DEFAULT_REGISTRATION);
-  const [regEnabled, setRegEnabled] = useState(false);
-  const [regAttachCp, setRegAttachCp] = useState(false);
-
-  const [confChatId, setConfChatId] = useState("");
-  const [confSendMode, setConfSendMode] = useState("group");
-  const [confTemplate, setConfTemplate] = useState(DEFAULT_CONFIRMATION);
-  const [confAttachCp, setConfAttachCp] = useState(false);
-  const [confEnabled, setConfEnabled] = useState(true);
-
-  const [variableGroups, setVariableGroups] = useState([]);
-  const [discoveredChats, setDiscoveredChats] = useState([]);
+  const [bots, setBots] = useState([]);
+  const [botForm, setBotForm] = useState({ display_name: "", username: "", bot_token: "" });
+  const [botModalOpen, setBotModalOpen] = useState(false);
+  const [editingBot, setEditingBot] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [togglingBotId, setTogglingBotId] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [error, setError] = useState("");
 
-  const [saving, setSaving] = useState({ bot: false, registration: false, confirmation: false });
-  const [testing, setTesting] = useState({ bot: false, registration: false, confirmation: false });
-  const [discovering, setDiscovering] = useState(false);
-  const [feedback, setFeedback] = useState({ bot: "", registration: "", confirmation: "" });
-  const [error, setError] = useState({ bot: "", registration: "", confirmation: "" });
-
-  const clearSectionMessages = (section) => {
-    setFeedback((f) => ({ ...f, [section]: "" }));
-    setError((e) => ({ ...e, [section]: "" }));
+  const clearMessages = () => {
+    setFeedback("");
+    setError("");
   };
 
+  const loadBots = () =>
+    api.get("/api/telegram/bots").then(({ data }) => {
+      setBots(data || []);
+    });
+
   useEffect(() => {
-    Promise.all([api.get("/api/telegram/settings"), api.get("/api/telegram/variables")])
-      .then(([settingsRes, varsRes]) => {
-        const data = settingsRes.data;
-        setHasToken(data.has_token);
-        if (data.bot_token) setBotToken(data.bot_token);
-        setRegChatId(data.registration_chat_id || "");
-        setRegSendMode(data.registration_send_mode || "group");
-        setRegTemplate(data.registration_template || DEFAULT_REGISTRATION);
-        setRegEnabled(Boolean(data.notify_on_registration));
-        setRegAttachCp(Boolean(data.attach_cp_on_registration));
-        setConfChatId(data.confirmation_chat_id || "");
-        setConfSendMode(data.confirmation_send_mode || "group");
-        setConfTemplate(data.confirmation_template || data.message_template || DEFAULT_CONFIRMATION);
-        setConfAttachCp(Boolean(data.attach_cp_on_confirmation));
-        setConfEnabled(data.notify_on_confirmation !== false);
-        setVariableGroups(varsRes.data.groups || []);
-      })
-      .catch((e) => setError((prev) => ({ ...prev, bot: e.response?.data?.detail || "Erro ao carregar" })))
+    loadBots()
+      .catch((e) => setError(apiError(e, "Erro ao carregar")))
       .finally(() => setLoading(false));
   }, []);
 
-  const handleDiscoverChats = async () => {
-    setDiscovering(true);
-    clearSectionMessages("bot");
-    try {
-      const { data } = await api.get("/api/telegram/chats");
-      setDiscoveredChats(data.chats || []);
-      if (!data.chats?.length) {
-        setFeedback((f) => ({
-          ...f,
-          bot: "Nenhuma conversa encontrada. Adicione o bot ao grupo e envie uma mensagem.",
-        }));
-      }
-    } catch (err) {
-      setError((e) => ({ ...e, bot: err.response?.data?.detail || "Erro ao listar conversas" }));
-    } finally {
-      setDiscovering(false);
-    }
+  const openAddBot = () => {
+    setEditingBot(null);
+    setBotForm({ display_name: "", username: "", bot_token: "" });
+    clearMessages();
+    setBotModalOpen(true);
+  };
+
+  const openEditBot = (bot) => {
+    setEditingBot(bot);
+    setBotForm({
+      display_name: bot.display_name || "",
+      username: bot.username || "",
+      bot_token: "",
+    });
+    clearMessages();
+    setBotModalOpen(true);
+  };
+
+  const closeBotModal = () => {
+    if (saving || testing) return;
+    setBotModalOpen(false);
+    setEditingBot(null);
   };
 
   const saveBot = async (e) => {
     e.preventDefault();
-    setSaving((s) => ({ ...s, bot: true }));
-    clearSectionMessages("bot");
+    setSaving(true);
+    clearMessages();
     try {
-      const { data } = await api.put("/api/telegram/settings/bot", {
-        bot_token: botToken || undefined,
-      });
-      setHasToken(data.has_token);
-      setFeedback((f) => ({ ...f, bot: "Token salvo com sucesso." }));
+      const payload = {
+        display_name: botForm.display_name.trim(),
+        username: botForm.username.trim() || null,
+        bot_token: botForm.bot_token.trim() || undefined,
+      };
+      if (editingBot) {
+        const { data } = await api.patch(`/api/telegram/bots/${editingBot.id}`, payload);
+        setBots((prev) => prev.map((b) => (b.id === data.id ? data : b)));
+        setFeedback("Bot atualizado com sucesso.");
+      } else {
+        if (!payload.bot_token) {
+          setError("Informe o token do bot");
+          return;
+        }
+        const { data } = await api.post("/api/telegram/bots", {
+          display_name: payload.display_name,
+          username: payload.username,
+          bot_token: payload.bot_token,
+        });
+        setBots((prev) => [...prev, data]);
+        setFeedback("Bot conectado — foto de perfil carregada.");
+      }
+      setBotModalOpen(false);
+      setEditingBot(null);
+      setBotForm({ display_name: "", username: "", bot_token: "" });
     } catch (err) {
-      setError((e) => ({ ...e, bot: err.response?.data?.detail || "Erro ao salvar" }));
+      setError(apiError(err, "Erro ao salvar"));
     } finally {
-      setSaving((s) => ({ ...s, bot: false }));
+      setSaving(false);
     }
   };
 
-  const testBot = async () => {
-    setTesting((t) => ({ ...t, bot: true }));
-    clearSectionMessages("bot");
+  const testBotForm = async () => {
+    setTesting(true);
+    clearMessages();
     try {
       const { data } = await api.post("/api/telegram/test/bot", {
-        bot_token: botToken || undefined,
+        bot_token: botForm.bot_token.trim() || undefined,
+        bot_id: editingBot?.id,
       });
-      setFeedback((f) => ({
-        ...f,
-        bot: `${data.message}${data.bot_username ? ` (@${data.bot_username})` : ""}`,
-      }));
+      setFeedback(`${data.message}${data.bot_username ? ` (@${data.bot_username})` : ""}`);
     } catch (err) {
-      setError((e) => ({ ...e, bot: err.response?.data?.detail || "Falha no teste" }));
+      setError(apiError(err, "Falha no teste"));
     } finally {
-      setTesting((t) => ({ ...t, bot: false }));
+      setTesting(false);
     }
   };
 
-  const saveRegistration = async (e) => {
-    e.preventDefault();
-    setSaving((s) => ({ ...s, registration: true }));
-    clearSectionMessages("registration");
+  const confirmDeleteBot = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    clearMessages();
     try {
-      const { data } = await api.put("/api/telegram/settings/registration", {
-        chat_id: regChatId,
-        send_mode: regSendMode,
-        template: regTemplate,
-        enabled: regEnabled,
-        attach_cp: regAttachCp,
-      });
-      if (data.registration_chat_id) setRegChatId(data.registration_chat_id);
-      setFeedback((f) => ({ ...f, registration: "Notificações de registro salvas." }));
+      await api.delete(`/api/telegram/bots/${deleteTarget.id}`);
+      setBots((prev) => prev.filter((b) => b.id !== deleteTarget.id));
+      setDeleteTarget(null);
+      setFeedback("Bot removido.");
     } catch (err) {
-      setError((e) => ({ ...e, registration: err.response?.data?.detail || "Erro ao salvar" }));
+      setError(apiError(err, "Erro ao excluir bot"));
     } finally {
-      setSaving((s) => ({ ...s, registration: false }));
+      setDeleting(false);
     }
   };
 
-  const testRegistration = async () => {
-    setTesting((t) => ({ ...t, registration: true }));
-    clearSectionMessages("registration");
+  const toggleBotActive = async (bot) => {
+    setTogglingBotId(bot.id);
+    clearMessages();
     try {
-      const { data } = await api.post("/api/telegram/test/registration", {
-        chat_id: regChatId,
-        template: regTemplate,
+      const { data } = await api.patch(`/api/telegram/bots/${bot.id}`, {
+        is_active: !bot.is_active,
       });
-      setFeedback((f) => ({ ...f, registration: data.message }));
-      if (regChatId.startsWith("-") && !regChatId.startsWith("-100")) {
-        setRegChatId(`-100${regChatId.slice(1)}`);
-      }
+      setBots((prev) => prev.map((b) => (b.id === data.id ? data : b)));
     } catch (err) {
-      setError((e) => ({ ...e, registration: err.response?.data?.detail || "Falha no teste" }));
+      setError(apiError(err, "Erro ao atualizar bot"));
     } finally {
-      setTesting((t) => ({ ...t, registration: false }));
+      setTogglingBotId(null);
     }
   };
-
-  const saveConfirmation = async (e) => {
-    e.preventDefault();
-    setSaving((s) => ({ ...s, confirmation: true }));
-    clearSectionMessages("confirmation");
-    try {
-      const { data } = await api.put("/api/telegram/settings/confirmation", {
-        chat_id: confChatId,
-        send_mode: confSendMode,
-        template: confTemplate,
-        enabled: confEnabled,
-        attach_cp: confAttachCp,
-      });
-      if (data.confirmation_chat_id) setConfChatId(data.confirmation_chat_id);
-      setFeedback((f) => ({ ...f, confirmation: "Notificações de confirmação salvas." }));
-    } catch (err) {
-      setError((e) => ({ ...e, confirmation: err.response?.data?.detail || "Erro ao salvar" }));
-    } finally {
-      setSaving((s) => ({ ...s, confirmation: false }));
-    }
-  };
-
-  const testConfirmation = async () => {
-    setTesting((t) => ({ ...t, confirmation: true }));
-    clearSectionMessages("confirmation");
-    try {
-      const { data } = await api.post("/api/telegram/test/confirmation", {
-        chat_id: confChatId,
-        template: confTemplate,
-      });
-      setFeedback((f) => ({ ...f, confirmation: data.message }));
-      if (confChatId.startsWith("-") && !confChatId.startsWith("-100")) {
-        setConfChatId(`-100${confChatId.slice(1)}`);
-      }
-    } catch (err) {
-      setError((e) => ({ ...e, confirmation: err.response?.data?.detail || "Falha no teste" }));
-    } finally {
-      setTesting((t) => ({ ...t, confirmation: false }));
-    }
-  };
-
-  const insertVar = (setter) => (key) => setter((t) => `${t}{{${key}}}`);
 
   if (loading) return <p className="muted">Carregando...</p>;
 
@@ -279,191 +215,117 @@ export default function Telegram() {
         <h2>Configurações — Telegram</h2>
       </div>
 
-      <section className="card telegram-section">
-        <h3 className="telegram-section-title">Conexão com o bot</h3>
-        <p className="hint">
-          Crie o bot no <strong>@BotFather</strong> e informe o token abaixo. Os destinos das notificações são
-          configurados nas seções seguintes.
+      <p className="hint" style={{ marginBottom: "1rem" }}>
+        Conecte os bots usados nas automações de cada projeto financeiro. As regras de envio ficam na aba{" "}
+        <strong>Automações</strong> dentro do projeto.
+      </p>
+
+      <div className="toolbar toolbar-spread">
+        <p className="hint" style={{ margin: 0 }}>
+          Apenas bots <strong>ativos</strong> podem ser selecionados nas automações.
         </p>
+        <button type="button" className="btn btn-primary" onClick={openAddBot}>
+          + Adicionar bot
+        </button>
+      </div>
 
-        {feedback.bot && <div className="alert alert-success">{feedback.bot}</div>}
-        {error.bot && <p className="error">{error.bot}</p>}
+      {feedback && <div className="alert alert-success">{feedback}</div>}
+      {error && <p className="error">{error}</p>}
 
-        <form onSubmit={saveBot}>
+      {bots.length > 0 ? (
+        <div className="project-gallery telegram-connection-gallery">
+          {bots.map((bot) => (
+            <BotConnectionCard
+              key={bot.id}
+              bot={bot}
+              toggling={togglingBotId === bot.id}
+              onEdit={openEditBot}
+              onDelete={setDeleteTarget}
+              onToggleActive={toggleBotActive}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state card">
+          <p className="muted">
+            Nenhum bot conectado. Clique em <strong>Adicionar bot</strong>.
+          </p>
+        </div>
+      )}
+
+      <Modal
+        open={botModalOpen}
+        title={editingBot ? `Editar ${editingBot.display_name}` : "Adicionar bot"}
+        onClose={closeBotModal}
+      >
+        <p className="hint">
+          Crie o bot no <strong>@BotFather</strong>. Ao salvar, a foto de perfil é buscada automaticamente.
+        </p>
+        <form className="form-grid" onSubmit={saveBot}>
+          <label>
+            Nome do bot
+            <input
+              required
+              placeholder="Ex.: Arpadesk Vendas"
+              value={botForm.display_name}
+              onChange={(e) => setBotForm({ ...botForm, display_name: e.target.value })}
+            />
+          </label>
+          <label>
+            @ do bot
+            <input
+              placeholder="meu_bot"
+              value={botForm.username}
+              onChange={(e) => setBotForm({ ...botForm, username: e.target.value })}
+            />
+          </label>
           <label className="full">
             Token do bot
             <input
               type="password"
-              placeholder={hasToken ? "•••••••• (deixe vazio para manter)" : "123456:ABC-DEF..."}
-              value={botToken}
-              onChange={(e) => setBotToken(e.target.value)}
+              required={!editingBot}
+              placeholder={editingBot ? "Deixe vazio para manter o atual" : "123456:ABC-DEF..."}
+              value={botForm.bot_token}
+              onChange={(e) => setBotForm({ ...botForm, bot_token: e.target.value })}
             />
           </label>
-          <div className="form-actions">
-            <button type="button" className="btn btn-ghost" onClick={handleDiscoverChats} disabled={discovering}>
-              {discovering ? "Buscando..." : "Listar conversas do bot"}
+          <div className="form-actions full">
+            <button type="button" className="btn btn-ghost" onClick={closeBotModal} disabled={saving}>
+              Cancelar
             </button>
-            <button type="button" className="btn btn-ghost" onClick={testBot} disabled={testing.bot}>
-              {testing.bot ? "Testando..." : "Testar conexão"}
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={testBotForm}
+              disabled={testing || (!botForm.bot_token && !editingBot)}
+            >
+              {testing ? "Testando..." : "Testar conexão"}
             </button>
-            <button type="submit" className="btn btn-primary" disabled={saving.bot}>
-              {saving.bot ? "Salvando..." : "Salvar"}
+            <button type="submit" className="btn btn-primary" disabled={saving}>
+              {saving ? "Salvando..." : "Salvar"}
             </button>
           </div>
         </form>
-      </section>
+      </Modal>
 
-      <section className="card telegram-section">
-        <h3 className="telegram-section-title">Notificações de Registro de Vendas</h3>
-        <p className="hint">Enviadas ao cadastrar uma nova venda (status Pendente).</p>
-
-        {feedback.registration && <div className="alert alert-success">{feedback.registration}</div>}
-        {error.registration && <p className="error">{error.registration}</p>}
-
-        <form onSubmit={saveRegistration}>
-          <div className="settings-row" style={{ marginBottom: "1rem" }}>
-            <div>
-              <strong>Ativar notificações de registro</strong>
+      <Modal open={Boolean(deleteTarget)} title="Excluir bot" onClose={() => !deleting && setDeleteTarget(null)}>
+        {deleteTarget && (
+          <div>
+            <p>
+              Remover o bot <strong>{deleteTarget.display_name}</strong>
+              {deleteTarget.username ? ` (@${deleteTarget.username})` : ""}? Esta ação não pode ser desfeita.
+            </p>
+            <div className="form-actions">
+              <button type="button" className="btn btn-ghost" disabled={deleting} onClick={() => setDeleteTarget(null)}>
+                Cancelar
+              </button>
+              <button type="button" className="btn btn-danger" disabled={deleting} onClick={confirmDeleteBot}>
+                {deleting ? "Excluindo..." : "Excluir"}
+              </button>
             </div>
-            <button
-              type="button"
-              className={`switch ${regEnabled ? "on" : ""}`}
-              role="switch"
-              aria-checked={regEnabled}
-              onClick={() => setRegEnabled((v) => !v)}
-            >
-              <span className="switch-thumb" />
-            </button>
           </div>
-
-          <div className="settings-row" style={{ marginBottom: "1rem" }}>
-            <div>
-              <strong>Enviar comprovante (CP) anexo</strong>
-              <p className="hint-inline">
-                Quando a venda tiver CP no MinIO, envia o arquivo junto com a mensagem (legenda = template).
-              </p>
-            </div>
-            <button
-              type="button"
-              className={`switch ${regAttachCp ? "on" : ""}`}
-              role="switch"
-              aria-checked={regAttachCp}
-              onClick={() => setRegAttachCp((v) => !v)}
-            >
-              <span className="switch-thumb" />
-            </button>
-          </div>
-
-          <DestinationFields
-            chatId={regChatId}
-            sendMode={regSendMode}
-            onChatIdChange={setRegChatId}
-            onSendModeChange={setRegSendMode}
-          />
-
-          <label className="full" style={{ marginTop: "1rem" }}>
-            Mensagem
-            <textarea rows={5} value={regTemplate} onChange={(e) => setRegTemplate(e.target.value)} />
-          </label>
-          <VariableChips
-            groups={variableGroups}
-            filterGroups={["Geral", "Vendas"]}
-            onInsert={insertVar(setRegTemplate)}
-          />
-
-          <div className="form-actions">
-            <button type="button" className="btn btn-ghost" onClick={handleDiscoverChats} disabled={discovering}>
-              {discovering ? "Buscando..." : "Listar conversas"}
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={testRegistration} disabled={testing.registration}>
-              {testing.registration ? "Enviando..." : "Testar"}
-            </button>
-            <button type="submit" className="btn btn-primary" disabled={saving.registration}>
-              {saving.registration ? "Salvando..." : "Salvar"}
-            </button>
-          </div>
-          <ChatPicker chats={discoveredChats} onSelect={setRegChatId} />
-        </form>
-      </section>
-
-      <section className="card telegram-section">
-        <h3 className="telegram-section-title">Notificações de Confirmação de Vendas</h3>
-        <p className="hint">
-          Enviadas quando o financeiro confirma a venda (status OK). O envio por projeto é controlado pelo switch na
-          aba Vendas de cada projeto.
-        </p>
-
-        {feedback.confirmation && <div className="alert alert-success">{feedback.confirmation}</div>}
-        {error.confirmation && <p className="error">{error.confirmation}</p>}
-
-        <form onSubmit={saveConfirmation}>
-          <div className="settings-row" style={{ marginBottom: "1rem" }}>
-            <div>
-              <strong>Ativar notificações de confirmação</strong>
-              <p className="hint-inline">
-                Enviadas quando o financeiro confirma a venda (status OK), se o switch do projeto também estiver ativo.
-              </p>
-            </div>
-            <button
-              type="button"
-              className={`switch ${confEnabled ? "on" : ""}`}
-              role="switch"
-              aria-checked={confEnabled}
-              onClick={() => setConfEnabled((v) => !v)}
-            >
-              <span className="switch-thumb" />
-            </button>
-          </div>
-
-          <div className="settings-row" style={{ marginBottom: "1rem" }}>
-            <div>
-              <strong>Enviar comprovante (CP) anexo</strong>
-              <p className="hint-inline">
-                Na confirmação (status OK), anexa o CP da venda quando existir.
-              </p>
-            </div>
-            <button
-              type="button"
-              className={`switch ${confAttachCp ? "on" : ""}`}
-              role="switch"
-              aria-checked={confAttachCp}
-              onClick={() => setConfAttachCp((v) => !v)}
-            >
-              <span className="switch-thumb" />
-            </button>
-          </div>
-
-          <DestinationFields
-            chatId={confChatId}
-            sendMode={confSendMode}
-            onChatIdChange={setConfChatId}
-            onSendModeChange={setConfSendMode}
-          />
-
-          <label className="full" style={{ marginTop: "1rem" }}>
-            Mensagem
-            <textarea rows={6} value={confTemplate} onChange={(e) => setConfTemplate(e.target.value)} />
-          </label>
-          <VariableChips
-            groups={variableGroups}
-            filterGroups={["Geral", "Vendas", "Comissões e resumo"]}
-            onInsert={insertVar(setConfTemplate)}
-          />
-
-          <div className="form-actions">
-            <button type="button" className="btn btn-ghost" onClick={handleDiscoverChats} disabled={discovering}>
-              {discovering ? "Buscando..." : "Listar conversas"}
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={testConfirmation} disabled={testing.confirmation}>
-              {testing.confirmation ? "Enviando..." : "Testar"}
-            </button>
-            <button type="submit" className="btn btn-primary" disabled={saving.confirmation}>
-              {saving.confirmation ? "Salvando..." : "Salvar"}
-            </button>
-          </div>
-          <ChatPicker chats={discoveredChats} onSelect={setConfChatId} />
-        </form>
-      </section>
+        )}
+      </Modal>
     </div>
   );
 }

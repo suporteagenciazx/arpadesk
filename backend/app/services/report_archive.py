@@ -7,7 +7,7 @@ from datetime import date, datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import CashClosing, ReportImport, ReportImportLog, Sale, User, UserLevel
+from app.models import CashClosing, Project, ReportImport, ReportImportLog, Sale, User, UserLevel
 from app.services.calendar import report_week_description
 from app.services.cash_closing import (
     ensure_cash_closing_from_import,
@@ -92,7 +92,7 @@ def reopen_saved_report_for_edit(
     now = datetime.now(timezone.utc)
     closing.reopened_at = now
     closing.reopened_by_id = user.id
-    closing.reopen_scope = "all"
+    closing.reopen_scope = "admin_only"
     closing.report_tabs_locked = False
     db.commit()
     return (
@@ -195,8 +195,47 @@ def _public_id_for_period(db: Session, project_id: int, period_start, period_end
     return ""
 
 
+def restore_report_as_active_period(
+    db: Session,
+    project_id: int,
+    period_start: date,
+    period_end: date,
+) -> dict:
+    """Recua o ponteiro da semana aberta para um relatório já salvo (correção de salvamento acidental)."""
+    closing = get_cash_closing(db, project_id, period_start, period_end)
+    if not closing:
+        raise HTTPException(404, "Relatório não encontrado para este período")
+    if not closing.report_tabs_locked:
+        raise HTTPException(400, "Apenas relatórios já salvos podem ser restaurados como vigentes")
+
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "Projeto não encontrado")
+
+    from app.services.active_period import active_period_to_dict, sync_active_period_to
+
+    sync_active_period_to(db, project, period_start, period_end)
+    return active_period_to_dict(db, project)
+
+
 def list_report_archive(db: Session, project_id: int) -> list[dict]:
+    from app.services.active_period import resolve_active_period
+
     backfill_retroactive_report_public_ids(db, project_id)
+    project = db.get(Project, project_id)
+    active_start, active_end = resolve_active_period(db, project) if project else (None, None)
+
+    def _row(**kwargs) -> dict:
+        ps = kwargs["period_start"]
+        pe = kwargs["period_end"]
+        kwargs["is_active_period"] = (
+            active_start is not None
+            and active_end is not None
+            and ps == active_start.isoformat()
+            and pe == active_end.isoformat()
+        )
+        return kwargs
+
     logs = (
         db.query(ReportImportLog)
         .options(joinedload(ReportImportLog.created_by))
@@ -229,18 +268,18 @@ def list_report_archive(db: Session, project_id: int) -> list[dict]:
         public_id = _public_id_for_period(db, project_id, log.period_start, log.period_end)
 
         rows.append(
-            {
-                "id": public_id,
-                "period_start": log.period_start.isoformat(),
-                "period_end": log.period_end.isoformat(),
-                "description": report_week_description(log.period_start, log.period_end),
-                "billing_total": metrics["billing_total"],
-                "expenses_total": metrics["expenses_total"],
-                "sales_count": metrics["sales_count"],
-                "profit": metrics["profit"],
-                "saved_at": log.saved_at.isoformat() if log.saved_at else None,
-                "has_pdf": bool(report_import and report_import.pdf_object_key),
-            }
+            _row(
+                id=public_id,
+                period_start=log.period_start.isoformat(),
+                period_end=log.period_end.isoformat(),
+                description=report_week_description(log.period_start, log.period_end),
+                billing_total=metrics["billing_total"],
+                expenses_total=metrics["expenses_total"],
+                sales_count=metrics["sales_count"],
+                profit=metrics["profit"],
+                saved_at=log.saved_at.isoformat() if log.saved_at else None,
+                has_pdf=bool(report_import and report_import.pdf_object_key),
+            )
         )
 
     closings = (
@@ -268,18 +307,18 @@ def list_report_archive(db: Session, project_id: int) -> list[dict]:
             .first()
         )
         rows.append(
-            {
-                "id": closing.report_public_id,
-                "period_start": closing.period_start.isoformat(),
-                "period_end": closing.period_end.isoformat(),
-                "description": report_week_description(closing.period_start, closing.period_end),
-                "billing_total": metrics["billing_total"],
-                "expenses_total": metrics["expenses_total"],
-                "sales_count": metrics["sales_count"],
-                "profit": metrics["profit"],
-                "saved_at": closing.confirmed_at.isoformat() if closing.confirmed_at else None,
-                "has_pdf": bool(report_import and report_import.pdf_object_key),
-            }
+            _row(
+                id=closing.report_public_id,
+                period_start=closing.period_start.isoformat(),
+                period_end=closing.period_end.isoformat(),
+                description=report_week_description(closing.period_start, closing.period_end),
+                billing_total=metrics["billing_total"],
+                expenses_total=metrics["expenses_total"],
+                sales_count=metrics["sales_count"],
+                profit=metrics["profit"],
+                saved_at=closing.confirmed_at.isoformat() if closing.confirmed_at else None,
+                has_pdf=bool(report_import and report_import.pdf_object_key),
+            )
         )
 
     rows.sort(key=lambda r: (r["period_start"], r.get("saved_at") or ""), reverse=True)

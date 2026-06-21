@@ -50,7 +50,22 @@ find /backups/arpadesk -name "pg_*.sql" -mtime +14 -delete
 
 ## Backup volume de uploads
 
-Comprovantes e anexos ficam no volume `uploads_data`.
+Comprovantes novos ficam no **MinIO** (volume `minio_data`). Uploads legados no volume `uploads_data`.
+
+### MinIO (comprovantes — prioritário)
+
+```bash
+cd /srv/arpadesk-prod
+
+MINIO_VOL=$(docker volume ls -q | grep minio_data | head -1)
+
+docker run --rm \
+  -v "$MINIO_VOL:/data:ro" \
+  -v /backups/arpadesk:/backup \
+  alpine tar czf /backup/minio_$(date +%Y%m%d).tar.gz -C /data .
+```
+
+### Uploads legado
 
 ```bash
 docker run --rm \
@@ -59,7 +74,12 @@ docker run --rm \
   alpine tar czf /backup/uploads_$(date +%Y%m%d).tar.gz -C /data .
 ```
 
-> Ajuste o nome do volume: `docker volume ls | grep uploads`
+> Ajuste o nome do volume: `docker volume ls | grep -E 'minio|upload'`
+
+### Backup completo antes de migração ou update grande
+
+No PC (Windows): `scripts/backup-local.ps1`  
+Na VPS (restore): `scripts/restore-on-vps.sh` — ver [07-migracao-local-vps.md](./07-migracao-local-vps.md)
 
 ## Backup de secrets offline
 
@@ -121,10 +141,12 @@ curl -s https://seudominio.com.br/api/health
 ## Recuperação de desastre
 
 1. Restaurar `.env` a partir de backup seguro offline
-2. Subir stack: `docker compose up -d --build`
-3. Restaurar SQL: ver seção backup manual
-4. Restaurar uploads: extrair tar no volume
-5. Validar checklist em [03-deploy-vps.md](./03-deploy-vps.md)
+2. Subir postgres: `docker compose up -d postgres`
+3. Restaurar SQL: ver seção backup manual (ou `scripts/restore-on-vps.sh`)
+4. Restaurar MinIO: tar no volume `minio_data`
+5. Restaurar uploads legado (se aplicável)
+6. Subir stack: `docker compose up -d --build`
+7. Validar checklist em [03-deploy-vps.md](./03-deploy-vps.md)
 
 ## Manutenção do Portainer
 
