@@ -122,6 +122,8 @@ def commit_report_save(
     period_start: date,
     period_end: date,
     user: User,
+    *,
+    clients_received: int | None = None,
 ) -> dict:
     now = datetime.now(timezone.utc)
     closing_before = get_cash_closing(db, project_id, period_start, period_end)
@@ -161,6 +163,8 @@ def commit_report_save(
     if not closing.report_public_id:
         closing.report_public_id = generate_report_public_id(db, project_id)
     closing.report_tabs_locked = True
+    if clients_received is not None:
+        closing.clients_received = clients_received
     append_import_log(
         db,
         project_id,
@@ -169,6 +173,9 @@ def commit_report_save(
         original_filename="Salvar relatório",
         created_by_id=user.id,
     )
+    from app.services.marketing_clients import sync_clients_from_saved_report
+
+    sync_clients_from_saved_report(db, project_id, period_start, period_end)
     db.commit()
 
     project = db.get(Project, project_id)

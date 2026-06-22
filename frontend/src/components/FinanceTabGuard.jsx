@@ -6,7 +6,7 @@ export default function FinanceTabGuard({ tab, children }) {
   const { user } = useAuth();
   const { projectId } = useParams();
 
-  if (!canAccessFinanceTab(user?.level, tab)) {
+  if (!canAccessFinanceTab(user, tab, Number(projectId))) {
     return <Navigate to={`/p/${projectId}/financeiro/vendas`} replace />;
   }
 

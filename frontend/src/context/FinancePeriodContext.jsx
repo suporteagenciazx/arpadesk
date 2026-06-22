@@ -49,7 +49,7 @@ export function FinancePeriodProvider({ children }) {
   const financeConfig = useMemo(() => mergeFinanceConfig(project?.settings), [project?.settings]);
   const { user } = useAuth();
   const { notify } = useToast();
-  const hasFullHistory = canFullHistory(user);
+  const hasFullHistory = canFullHistory(user, projectId ? Number(projectId) : undefined);
   const fallback = useMemo(() => currentOperationalRange(financeConfig), [financeConfig]);
   const periodBeforeDraftRef = useRef(null);
   const browsingHistoryRef = useRef(false);

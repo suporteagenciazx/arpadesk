@@ -46,11 +46,22 @@ def sync_user_privileges(db: Session, user: User, codes: list[str] | None) -> No
         db.add(UserPrivilege(user_id=user.id, code=code))
 
 
-def user_has_privilege(db: Session, user: User, code: str) -> bool:
+def user_has_privilege(
+    db: Session,
+    user: User,
+    code: str,
+    *,
+    project_id: int | None = None,
+    sector_id: str = "financeiro",
+) -> bool:
     if user.level == UserLevel.admin:
         return True
     if user.level == UserLevel.ilustrativo:
         return False
+    if project_id is not None:
+        from app.services.member_access import user_has_project_privilege
+
+        return user_has_project_privilege(db, user, project_id, sector_id, code)
     return (
         db.query(UserPrivilege)
         .filter(UserPrivilege.user_id == user.id, UserPrivilege.code == code)
@@ -87,7 +98,7 @@ def user_can_access_period(
 ) -> bool:
     if user.level == UserLevel.admin:
         return True
-    if user_has_privilege(db, user, PRIVILEGE_FULL_HISTORY):
+    if user_has_privilege(db, user, PRIVILEGE_FULL_HISTORY, project_id=project_id):
         return True
     if not period_start or not period_end:
         return False
@@ -345,6 +356,7 @@ def cash_closing_to_dict(closing: CashClosing) -> dict:
         "reopen_scope": closing.reopen_scope,
         "report_public_id": closing.report_public_id,
         "report_tabs_locked": bool(closing.report_tabs_locked),
+        "clients_received": closing.clients_received,
         "summary_snapshot": closing.summary_snapshot or {},
     }
 
@@ -357,8 +369,11 @@ def create_cash_closing(
     user: User,
     *,
     skip_privilege_check: bool = False,
+    clients_received: int | None = None,
 ) -> CashClosing:
-    if not skip_privilege_check and not user_has_privilege(db, user, PRIVILEGE_CASH_CLOSING):
+    if not skip_privilege_check and not user_has_privilege(
+        db, user, PRIVILEGE_CASH_CLOSING, project_id=project_id
+    ):
         raise HTTPException(403, "Sem privilégio de fechamento de caixa")
     assert_period_accessible_for_user(db, project_id, user, period_start, period_end)
 
@@ -389,6 +404,8 @@ def create_cash_closing(
             existing.status = CashClosingStatus.confirmed
             existing.confirmed_by_id = user.id
             existing.confirmed_at = now
+            if clients_received is not None:
+                existing.clients_received = clients_received
             db.commit()
             closing = (
                 db.query(CashClosing)
@@ -418,6 +435,7 @@ def create_cash_closing(
         status=CashClosingStatus.confirmed,
         confirmed_by_id=user.id,
         confirmed_at=now,
+        clients_received=clients_received,
     )
     db.add(closing)
     db.commit()

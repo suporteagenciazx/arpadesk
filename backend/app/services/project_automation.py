@@ -33,7 +33,7 @@ AUTOMATION_DEFAULTS: dict[ProjectAutomationType, dict] = {
     },
     ProjectAutomationType.goal_reached: {
         "name": "Meta atingida",
-        "description": "Notifica quando a regra de meta for atingida (configuração em breve).",
+        "description": "Notifica quando uma regra de bônus ativa atinge a meta (mensagens customizadas nas configurações do projeto).",
         "template": DEFAULT_GOAL_REACHED_TEMPLATE,
     },
     ProjectAutomationType.payment_paid: {

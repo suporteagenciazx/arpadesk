@@ -7,7 +7,16 @@ function formatPeriodRange(start, end) {
   return `${fmtDate(start)} — ${fmtDate(end)}`;
 }
 
-export default function SaveReportModal({ open, preview, loading, saving, onClose, onConfirm }) {
+export default function SaveReportModal({
+  open,
+  preview,
+  loading,
+  saving,
+  clientsReceived,
+  onClientsReceivedChange,
+  onClose,
+  onConfirm,
+}) {
   if (!open) return null;
 
   return (
@@ -180,6 +189,17 @@ export default function SaveReportModal({ open, preview, loading, saving, onClos
             Ao confirmar o salvamento, todos os pagamentos pendentes serão marcados como <strong>Pago</strong> e o
             período será fechado.
           </p>
+
+          <label className="full save-report-clients-field">
+            Clientes recebidos (marketing)
+            <input
+              type="number"
+              min="0"
+              placeholder="Opcional — pode preencher depois no Marketing"
+              value={clientsReceived ?? ""}
+              onChange={(e) => onClientsReceivedChange?.(e.target.value)}
+            />
+          </label>
 
           <div className="form-actions save-report-actions">
             <button type="button" className="btn btn-ghost" disabled={saving} onClick={onClose}>

@@ -8,24 +8,56 @@ from app.database import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models import Payment, PeriodCommission, PeriodFine, Project, ProjectMember, Sale, User, UserLevel
 from app.routers.auth import user_to_out
-from app.privileges_catalog import privileges_for_level
-from app.privileges_catalog import PRIVILEGE_CATALOG
+from app.privileges_catalog import PRIVILEGE_CATALOG, privileges_for_sector
 from app.schemas import UserCreate, UserOut, UserUpdate
-from app.services.cash_closing import get_user_privilege_codes, sync_user_privileges
+from app.services.cash_closing import sync_user_privileges
+from app.services.member_access import (
+    assignment_out_from_member,
+    derive_privilege_union,
+    sync_user_project_assignments,
+)
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
 
 @router.get("/privileges/catalog")
-def list_privilege_catalog(_: User = Depends(require_admin)):
+def list_privilege_catalog(sector_id: str | None = None, _: User = Depends(require_admin)):
+    if sector_id:
+        codes = set(privileges_for_sector(sector_id))
+        return [p for p in PRIVILEGE_CATALOG if p["code"] in codes]
     return PRIVILEGE_CATALOG
 
 
-def sync_user_projects(db: Session, user: User, project_ids: list[int], commissions: dict):
-    db.query(ProjectMember).filter(ProjectMember.user_id == user.id).delete()
-    for pid in project_ids:
-        pct = Decimal(str(commissions.get(str(pid), commissions.get(pid, 0))))
-        db.add(ProjectMember(project_id=pid, user_id=user.id, commission_percent=pct))
+def _assignments_payload(data) -> list[dict] | None:
+    if getattr(data, "project_assignments", None) is not None:
+        return [a.model_dump() for a in data.project_assignments]
+    return None
+
+
+def _sync_projects(db: Session, user: User, data) -> None:
+    assignments = _assignments_payload(data)
+    if assignments is not None:
+        sync_user_project_assignments(db, user, assignments)
+        return
+    if data.project_ids is not None:
+        sync_user_project_assignments(
+            db,
+            user,
+            None,
+            legacy_project_ids=data.project_ids,
+            legacy_commissions=data.project_commissions or {},
+        )
+
+
+def _sync_privileges_union(db: Session, user: User) -> None:
+    if user.level == UserLevel.ilustrativo:
+        sync_user_privileges(db, user, [])
+        return
+    if user.level == UserLevel.admin:
+        sync_user_privileges(db, user, [])
+        return
+    codes = derive_privilege_union(db, user.id, "financeiro")
+    sync_user_privileges(db, user, codes)
 
 
 @router.get("", response_model=list[UserOut])
@@ -52,10 +84,9 @@ def create_user(data: UserCreate, _: User = Depends(require_admin), db: Session 
     )
     db.add(user)
     db.flush()
-    if data.project_ids:
-        sync_user_projects(db, user, data.project_ids, data.project_commissions)
-    privs = data.privileges if data.privileges else privileges_for_level(data.level)
-    sync_user_privileges(db, user, privs)
+    if data.project_assignments or data.project_ids:
+        _sync_projects(db, user, data)
+    _sync_privileges_union(db, user)
     db.commit()
     db.refresh(user)
     return user_to_out(db, user)
@@ -80,12 +111,9 @@ def update_user(
     if data.level == UserLevel.ilustrativo:
         user.password_hash = None
         user.email = None
-    if data.project_ids is not None:
-        sync_user_projects(db, user, data.project_ids, data.project_commissions or {})
-    if data.privileges is not None:
-        sync_user_privileges(db, user, data.privileges)
-    elif data.level is not None and data.level == UserLevel.ilustrativo:
-        sync_user_privileges(db, user, [])
+    if data.project_assignments is not None or data.project_ids is not None:
+        _sync_projects(db, user, data)
+    _sync_privileges_union(db, user)
     db.commit()
     db.refresh(user)
     return user_to_out(db, user)

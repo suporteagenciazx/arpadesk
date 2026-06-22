@@ -7,8 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import Base, SessionLocal, engine
 from app.database_migrations import run_migrations
-from app.routers import auth, automations, cash_closings, expenses, fines, health, payments, projects, report_archive, report_imports, report_save, sales, telegram, users
+from app.routers import auth, automations, cash_closings, expenses, fines, gestao, health, marketing, payments, project_permissions, projects, report_archive, report_imports, report_save, sales, sectors, telegram, users
 from app.services.finance import seed_database
+from app.services.member_access import backfill_member_access_config
 from app.services.storage import ensure_bucket
 from app.services.closing_scheduler import closing_scheduler_loop
 
@@ -21,6 +22,7 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed_database(db)
+        backfill_member_access_config(db)
     finally:
         db.close()
     scheduler_task = asyncio.create_task(closing_scheduler_loop())
@@ -54,6 +56,7 @@ app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(projects.router)
+app.include_router(project_permissions.router)
 app.include_router(sales.router)
 app.include_router(expenses.router)
 app.include_router(payments.router)
@@ -62,6 +65,9 @@ app.include_router(cash_closings.router)
 app.include_router(report_imports.router)
 app.include_router(report_archive.router)
 app.include_router(report_save.router)
+app.include_router(marketing.router)
+app.include_router(gestao.router)
+app.include_router(sectors.router)
 app.include_router(telegram.router)
 app.include_router(automations.router)
 

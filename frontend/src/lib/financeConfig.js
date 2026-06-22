@@ -123,7 +123,18 @@ export function emptyBonusRule() {
     reward_value: 0,
     participant_ids: [],
     description: "",
+    expires_at: null,
+    notify_on_automation: false,
+    notify_message: "",
   };
+}
+
+export function isBonusRuleActive(rule, refDate = new Date()) {
+  if (!rule?.enabled) return false;
+  const exp = rule.expires_at;
+  if (!exp) return true;
+  const ref = toLocalIso(refDate);
+  return ref <= exp;
 }
 
 export function buildCurrentWeekOverride(periodStart, periodEnd, closingTime) {

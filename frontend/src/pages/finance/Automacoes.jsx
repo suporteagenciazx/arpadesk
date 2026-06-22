@@ -3,6 +3,8 @@ import { useParams } from "react-router-dom";
 import api from "../../lib/api";
 import FinanceTabGuard from "../../components/FinanceTabGuard";
 import Modal from "../../components/Modal";
+import Switch from "../../components/Switch";
+import { isBonusRuleActive } from "../../lib/financeConfig";
 import {
   AutomationIcon,
   ExpenseIcon,
@@ -151,6 +153,8 @@ export default function Automacoes() {
   const [discoveredChats, setDiscoveredChats] = useState([]);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [bonusRules, setBonusRules] = useState([]);
+  const [loadingBonusRules, setLoadingBonusRules] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -198,7 +202,7 @@ export default function Automacoes() {
     }
   };
 
-  const openEdit = (row) => {
+  const openEdit = async (row) => {
     const cfg = row.config || {};
     setEditTarget(row);
     setEditForm({
@@ -212,6 +216,18 @@ export default function Automacoes() {
     });
     setDiscoveredChats([]);
     setError("");
+    setBonusRules([]);
+    if (row.automation_key === "goal_reached") {
+      setLoadingBonusRules(true);
+      try {
+        const { data } = await api.get(`/api/projects/${projectId}/finance-config`);
+        setBonusRules(data.bonus_rules || []);
+      } catch {
+        setBonusRules([]);
+      } finally {
+        setLoadingBonusRules(false);
+      }
+    }
   };
 
   const closeEdit = () => {
@@ -302,6 +318,11 @@ export default function Automacoes() {
   };
 
   const varFilter = AUTOMATION_VAR_FILTERS[editTarget?.automation_key] || ["Geral"];
+
+  const bonusNotifyRules = useMemo(
+    () => (bonusRules || []).filter((r) => r.notify_on_automation && isBonusRuleActive(r)),
+    [bonusRules]
+  );
 
   const actionButtons = (row) => (
     <div className="automation-row-actions">
@@ -470,21 +491,57 @@ export default function Automacoes() {
                 </label>
               </div>
 
-              <div className="settings-row" style={{ margin: "1rem 0" }}>
-                <div>
-                  <strong>Enviar comprovante (CP) anexo</strong>
-                  <p className="hint-inline">Quando a venda tiver CP, envia o arquivo junto com a mensagem.</p>
+              {editTarget.automation_key === "goal_reached" && (
+                <div className="bonus-automation-panel">
+                  <h4>Mensagens por regra de bônus</h4>
+                  <p className="hint-inline">
+                    Configure expiração, switch e texto em{" "}
+                    <strong>Configurações do projeto → Regras de bônus</strong>. As mensagens abaixo
+                    só são enviadas com esta automação <strong>ativa</strong>.
+                  </p>
+                  {!editTarget.is_enabled && (
+                    <p className="hint-inline" style={{ color: "var(--warning, #b45309)" }}>
+                      Ative o switch desta automação para disparar as notificações de meta.
+                    </p>
+                  )}
+                  {loadingBonusRules ? (
+                    <p className="muted">Carregando regras...</p>
+                  ) : bonusNotifyRules.length === 0 ? (
+                    <p className="muted">
+                      Nenhuma regra com mensagem customizada. Edite as regras de bônus nas configurações
+                      do projeto.
+                    </p>
+                  ) : (
+                    bonusNotifyRules.map((rule) => (
+                      <div key={rule.id} className="bonus-automation-rule">
+                        <strong>{rule.name || "Regra sem nome"}</strong>
+                        {rule.expires_at && (
+                          <span className="hint-inline">
+                            {" "}
+                            · expira em {rule.expires_at}
+                          </span>
+                        )}
+                        {rule.notify_message ? (
+                          <blockquote>{rule.notify_message}</blockquote>
+                        ) : (
+                          <p className="hint-inline">Sem mensagem — usa o template padrão abaixo.</p>
+                        )}
+                      </div>
+                    ))
+                  )}
                 </div>
-                <button
-                  type="button"
-                  className={`switch ${editForm.attach_cp ? "on" : ""}`}
-                  role="switch"
-                  aria-checked={editForm.attach_cp}
-                  onClick={() => setEditForm({ ...editForm, attach_cp: !editForm.attach_cp })}
-                >
-                  <span className="switch-thumb" />
-                </button>
-              </div>
+              )}
+
+              <Switch
+                checked={editForm.attach_cp}
+                onChange={(v) => setEditForm({ ...editForm, attach_cp: v })}
+                label={
+                  <div>
+                    <strong>Enviar comprovante (CP) anexo</strong>
+                    <p className="hint-inline">Quando a venda tiver CP, envia o arquivo junto com a mensagem.</p>
+                  </div>
+                }
+              />
 
               <BotSelector
                 bots={bots}

@@ -4,33 +4,36 @@ import api from "../../lib/api";
 import { useProject } from "../../context/ProjectContext";
 import { useAuth } from "../../context/AuthContext";
 import { canCreateProject } from "../../lib/privileges";
+import { filterProjectsForUser } from "../../lib/memberAccess";
 import Modal from "../../components/Modal";
-import { FolderIcon, PencilIcon, TrashIcon } from "../../components/Icons";
-import { projectDescription } from "../../lib/helpers";
+import ProjectGallery from "../../components/ProjectGallery";
+import ProjectFinanceSettingsModal from "../../components/ProjectFinanceSettingsModal";
+import Switch from "../../components/Switch";
+import { useSectors } from "../../context/SectorsContext";
 
 export default function FinanceProjects() {
   const [projects, setProjects] = useState([]);
   const [view, setView] = useState("gallery");
   const [name, setName] = useState("");
+  const [extraSectors, setExtraSectors] = useState([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
-  const [renameTarget, setRenameTarget] = useState(null);
-  const [renameName, setRenameName] = useState("");
-  const [renaming, setRenaming] = useState(false);
+  const [settingsTarget, setSettingsTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [adminPassword, setAdminPassword] = useState("");
   const [deleting, setDeleting] = useState(false);
   const { selectProject, clearProject } = useProject();
   const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
+  const { optionalSectors } = useSectors();
   const mayCreateProject = canCreateProject(user);
 
   const load = () => {
     setLoading(true);
     api
       .get("/api/projects")
-      .then(({ data }) => setProjects(data))
+      .then(({ data }) => setProjects(filterProjectsForUser(data, user, "financeiro")))
       .catch((e) => setError(e.response?.data?.detail || "Erro ao carregar projetos"))
       .finally(() => setLoading(false));
   };
@@ -38,7 +41,7 @@ export default function FinanceProjects() {
   useEffect(() => {
     clearProject();
     load();
-  }, []);
+  }, [user?.id]);
 
   const openProject = (p) => {
     selectProject(p);
@@ -49,8 +52,13 @@ export default function FinanceProjects() {
     e.preventDefault();
     if (!name.trim()) return;
     try {
-      const { data } = await api.post("/api/projects", { name: name.trim() });
+      const { data } = await api.post("/api/projects", {
+        name: name.trim(),
+        sectors: extraSectors,
+        origin_sector: "financeiro",
+      });
       setName("");
+      setExtraSectors([]);
       setModalOpen(false);
       openProject(data);
     } catch (err) {
@@ -58,28 +66,10 @@ export default function FinanceProjects() {
     }
   };
 
-  const openRename = (p, e) => {
-    e.stopPropagation();
-    setRenameTarget(p);
-    setRenameName(p.name);
+  const openSettings = (p, e) => {
+    e?.stopPropagation?.();
+    setSettingsTarget(p);
     setError("");
-  };
-
-  const confirmRename = async (e) => {
-    e.preventDefault();
-    if (!renameTarget || !renameName.trim()) return;
-    setRenaming(true);
-    setError("");
-    try {
-      await api.patch(`/api/projects/${renameTarget.id}`, { name: renameName.trim() });
-      setRenameTarget(null);
-      setRenameName("");
-      load();
-    } catch (err) {
-      setError(err.response?.data?.detail || "Erro ao renomear projeto");
-    } finally {
-      setRenaming(false);
-    }
   };
 
   const openDelete = (p, e) => {
@@ -107,30 +97,6 @@ export default function FinanceProjects() {
       setDeleting(false);
     }
   };
-
-  const adminActions = (p) =>
-    isAdmin ? (
-      <div className="project-card-actions">
-        <button
-          type="button"
-          className="btn-icon project-action-btn"
-          title="Renomear projeto"
-          aria-label="Renomear projeto"
-          onClick={(e) => openRename(p, e)}
-        >
-          <PencilIcon size={16} />
-        </button>
-        <button
-          type="button"
-          className="btn-icon project-action-btn project-action-btn--danger"
-          title="Excluir projeto"
-          aria-label="Excluir projeto"
-          onClick={(e) => openDelete(p, e)}
-        >
-          <TrashIcon size={16} />
-        </button>
-      </div>
-    ) : null;
 
   return (
     <div>
@@ -170,95 +136,23 @@ export default function FinanceProjects() {
         </div>
       </div>
 
-      {error && <p className="error">{error}</p>}
+      {error && !settingsTarget && !deleteTarget && <p className="error">{error}</p>}
 
-      {loading ? (
-        <p className="muted">Carregando projetos...</p>
-      ) : view === "gallery" ? (
-        <div className="project-gallery">
-          {projects.map((p) => (
-            <div key={p.id} className="project-card">
-              {adminActions(p)}
-              <button type="button" className="project-card-open" onClick={() => openProject(p)}>
-                <div className="project-card-icon">
-                  <FolderIcon size={22} />
-                </div>
-                <strong>{p.name}</strong>
-                <span>{projectDescription(p)}</span>
-              </button>
-            </div>
-          ))}
-          {projects.length === 0 && (
-            <div className="empty-state card">
-              <p>Nenhum projeto cadastrado.</p>
-              {mayCreateProject && (
-                <button type="button" className="btn btn-primary" onClick={() => setModalOpen(true)}>
-                  Criar primeiro projeto
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Nome</th>
-                <th>Descrição</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {projects.map((p) => (
-                <tr key={p.id}>
-                  <td>
-                    <strong>{p.name}</strong>
-                  </td>
-                  <td className="muted">{projectDescription(p)}</td>
-                  <td className="project-list-actions">
-                    {isAdmin && (
-                      <>
-                        <button
-                          type="button"
-                          className="btn-icon project-action-btn"
-                          title="Renomear projeto"
-                          aria-label="Renomear projeto"
-                          onClick={(e) => openRename(p, e)}
-                        >
-                          <PencilIcon size={16} />
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-icon project-action-btn project-action-btn--danger"
-                          title="Excluir projeto"
-                          aria-label="Excluir projeto"
-                          onClick={(e) => openDelete(p, e)}
-                        >
-                          <TrashIcon size={16} />
-                        </button>
-                      </>
-                    )}
-                    <button type="button" className="btn btn-sm btn-primary" onClick={() => openProject(p)}>
-                      Abrir
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {projects.length === 0 && (
-                <tr>
-                  <td colSpan={3} className="muted center">
-                    Nenhum projeto cadastrado.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <ProjectGallery
+        projects={projects}
+        view={view}
+        loading={loading}
+        isAdmin={isAdmin}
+        mayCreateProject={mayCreateProject}
+        emptyMessage="Nenhum projeto cadastrado."
+        onOpen={openProject}
+        onOpenSettings={openSettings}
+        onDelete={openDelete}
+        onCreateClick={() => setModalOpen(true)}
+      />
 
       <Modal open={modalOpen} title="Novo projeto" onClose={() => setModalOpen(false)}>
-        <form className="form-grid" onSubmit={createProject}>
+        <form className="form-grid project-create-form" onSubmit={createProject}>
           <label className="full">
             Nome do projeto
             <input
@@ -269,6 +163,21 @@ export default function FinanceProjects() {
               autoFocus
             />
           </label>
+          <div className="full project-settings-switches">
+            <p className="hint">Financeiro é incluído automaticamente.</p>
+            {optionalSectors.map((s) => (
+              <Switch
+                key={s.id}
+                checked={extraSectors.includes(s.id)}
+                onChange={(v) =>
+                  setExtraSectors((prev) =>
+                    v ? [...prev, s.id] : prev.filter((x) => x !== s.id)
+                  )
+                }
+                label={<strong>{s.label}</strong>}
+              />
+            ))}
+          </div>
           <div className="form-actions full">
             <button type="button" className="btn btn-ghost" onClick={() => setModalOpen(false)}>
               Cancelar
@@ -280,38 +189,13 @@ export default function FinanceProjects() {
         </form>
       </Modal>
 
-      <Modal
-        open={Boolean(renameTarget)}
-        title="Renomear projeto"
-        onClose={() => !renaming && setRenameTarget(null)}
-      >
-        {renameTarget && (
-          <form className="form-grid" onSubmit={confirmRename}>
-            <label className="full">
-              Novo nome
-              <input
-                required
-                value={renameName}
-                onChange={(e) => setRenameName(e.target.value)}
-                autoFocus
-              />
-            </label>
-            <div className="form-actions full">
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => setRenameTarget(null)}
-                disabled={renaming}
-              >
-                Cancelar
-              </button>
-              <button type="submit" className="btn btn-primary" disabled={renaming}>
-                {renaming ? "Salvando..." : "Salvar"}
-              </button>
-            </div>
-          </form>
-        )}
-      </Modal>
+      <ProjectFinanceSettingsModal
+        open={Boolean(settingsTarget)}
+        projectId={settingsTarget?.id}
+        project={settingsTarget}
+        onClose={() => setSettingsTarget(null)}
+        onProjectUpdated={load}
+      />
 
       <Modal
         open={Boolean(deleteTarget)}

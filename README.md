@@ -33,17 +33,26 @@ docker compose -f docker-compose.dev.yml up --build
 | [docs/07-migracao-local-vps.md](./docs/07-migracao-local-vps.md) | **Migrar dados do PC para VPS** |
 | [docs/05-variaveis-ambiente.md](./docs/05-variaveis-ambiente.md) | Referência de variáveis `.env` |
 | [docs/06-calendario-periodos.md](./docs/06-calendario-periodos.md) | Semana operacional e caixa fechado |
+| [docs/08-marketing-campanhas.md](./docs/08-marketing-campanhas.md) | Marketing — campanhas semanais |
 | [docs/PLANO-MVP.md](./docs/PLANO-MVP.md) | Plano de produto e fases |
 
 ## Deploy VPS
 
+**Guia completo (DNS → online):** [docs/03-deploy-vps.md](./docs/03-deploy-vps.md)
+
+Resumo:
+
 ```bash
-cp .env.vps.example .env   # ajustar DOMAIN, secrets, DATABASE_URL
+# Na VPS (após DNS, Docker e Portainer ok)
+sudo mkdir -p /srv/arpadesk-staging && cd /srv/arpadesk-staging
+git clone https://github.com/suporteagenciazx/arpadesk.git .
+cp .env.vps.example .env && nano .env && chmod 600 .env
 docker compose --env-file .env up -d --build
+curl -s https://SEU_DOMINIO/api/health
 ```
 
-- Deploy completo: [docs/03-deploy-vps.md](./docs/03-deploy-vps.md)
-- **Levar dados do teste local (AGENCIA):** [docs/07-migracao-local-vps.md](./docs/07-migracao-local-vps.md)
+- Variáveis: [docs/05-variaveis-ambiente.md](./docs/05-variaveis-ambiente.md)
+- Migrar dados do PC (AGENCIA): [docs/07-migracao-local-vps.md](./docs/07-migracao-local-vps.md)
 
 ### Backup local antes de subir na VPS
 

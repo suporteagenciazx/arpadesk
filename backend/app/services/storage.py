@@ -111,6 +111,26 @@ async def upload_report_pdf_bytes(project_id: int, key: str, data: bytes) -> str
     return key
 
 
+def marketing_list_object_key(project_id: int, list_id: int, extension: str) -> str:
+    ext = extension if extension.startswith(".") else f".{extension}"
+    return f"projects/{project_id}/marketing/lists/{list_id}/{uuid.uuid4().hex}{ext}"
+
+
+async def upload_marketing_list(project_id: int, list_id: int, upload: UploadFile) -> str:
+    extension = _resolve_extension(upload)
+    data = await read_upload_limited(upload)
+    key = marketing_list_object_key(project_id, list_id, extension)
+    content_type = (upload.content_type or "application/octet-stream").split(";")[0].strip()
+    client = _client()
+    client.put_object(
+        Bucket=settings.s3_bucket,
+        Key=key,
+        Body=data,
+        ContentType=content_type,
+    )
+    return key
+
+
 async def upload_report_pdf(project_id: int, period_start: str, period_end: str, upload: UploadFile) -> str:
     content_type = (upload.content_type or "").split(";")[0].strip().lower()
     filename = (upload.filename or "").lower()

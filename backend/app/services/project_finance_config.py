@@ -118,7 +118,22 @@ def _normalize_bonus_rule(rule: dict) -> dict:
         "reward_value": float(rule.get("reward_value") or 0),
         "participant_ids": list(rule.get("participant_ids") or []),
         "description": (rule.get("description") or "").strip(),
+        "expires_at": rule.get("expires_at") or None,
+        "notify_on_automation": bool(rule.get("notify_on_automation", False)),
+        "notify_message": (rule.get("notify_message") or "").strip(),
     }
+
+
+def is_bonus_rule_active(rule: dict, ref: date | None = None) -> bool:
+    if not rule.get("enabled", True):
+        return False
+    exp = rule.get("expires_at")
+    if not exp:
+        return True
+    try:
+        return date.fromisoformat(str(exp)) >= (ref or date.today())
+    except ValueError:
+        return True
 
 
 def parse_hhmm(value: str) -> time:

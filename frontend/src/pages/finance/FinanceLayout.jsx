@@ -31,12 +31,13 @@ const ALL_TABS = [
   { to: "relatorio", label: "Relatório", key: "relatorio" },
   { to: "arquivo", label: "Arquivo", key: "arquivo" },
   { to: "automacoes", label: "Automações", key: "automacoes" },
+  { to: "permissoes", label: "Permissões", key: "permissoes" },
 ];
 
 function FinanceLayoutInner() {
   const { projectId } = useParams();
   const location = useLocation();
-  const { project, clearProject, updateProjectSettings } = useProject();
+  const { project, selectProject, clearProject, updateProjectSettings } = useProject();
   const { user, isAdmin } = useAuth();
   const { notify } = useToast();
   const period = useFinancePeriod();
@@ -50,21 +51,23 @@ function FinanceLayoutInner() {
   const teamBlocked = !isAdmin && (!period.isTeamWeekOpen || frozen);
   const [saveReportOpen, setSaveReportOpen] = useState(false);
   const [saveReportPreview, setSaveReportPreview] = useState(null);
+  const [clientsReceivedReport, setClientsReceivedReport] = useState("");
   const [loadingSaveReport, setLoadingSaveReport] = useState(false);
   const [savingReport, setSavingReport] = useState(false);
   const [editRecoveryOpen, setEditRecoveryOpen] = useState(false);
   const [discardingEdit, setDiscardingEdit] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const canOpenSettings = isAdmin || user?.level === "financeiro";
+  const canOpenSettings = isAdmin;
 
   const isRelatorio = location.pathname.endsWith("/relatorio");
   const isPagamentos = location.pathname.endsWith("/pagamentos");
   const isArquivo = location.pathname.endsWith("/arquivo");
   const isAutomacoes = location.pathname.endsWith("/automacoes");
+  const isPermissoes = location.pathname.endsWith("/permissoes");
   const isVendas = location.pathname.endsWith("/vendas");
   const isDespesas = location.pathname.endsWith("/despesas");
-  const showPeriodChrome = !isArquivo && !isAutomacoes;
+  const showPeriodChrome = !isArquivo && !isAutomacoes && !isPermissoes;
 
   const isReportEditing = useMemo(
     () =>
@@ -72,9 +75,9 @@ function FinanceLayoutInner() {
     [projectId, period.periodStart, period.periodEnd, isUnlocked]
   );
 
-  const showFreezeOverlay = !isArquivo && !isAutomacoes && teamBlocked;
+  const showFreezeOverlay = !isArquivo && !isAutomacoes && !isPermissoes && teamBlocked;
 
-  const tabs = ALL_TABS.filter((t) => canAccessFinanceTab(user?.level, t.key));
+  const tabs = ALL_TABS.filter((t) => canAccessFinanceTab(user, t.key, Number(projectId)));
 
   useEffect(() => {
     if (!isReportEditing) return undefined;
@@ -99,6 +102,7 @@ function FinanceLayoutInner() {
     setSaveReportOpen(true);
     setLoadingSaveReport(true);
     setSaveReportPreview(null);
+    setClientsReceivedReport("");
     try {
       const { data } = await api.get(`/api/projects/${projectId}/report-save/preview`, {
         params: period.params(),
@@ -115,9 +119,19 @@ function FinanceLayoutInner() {
   const confirmSaveReport = async () => {
     setSavingReport(true);
     try {
-      const { data } = await api.post(`/api/projects/${projectId}/report-save`, null, { params: period.params() });
+      let body = {};
+      if (clientsReceivedReport.trim() !== "") {
+        const parsed = parseInt(clientsReceivedReport, 10);
+        if (!Number.isNaN(parsed) && parsed >= 0) {
+          body = { clients_received: parsed };
+        }
+      }
+      const { data } = await api.post(`/api/projects/${projectId}/report-save`, body, {
+        params: period.params(),
+      });
       setSaveReportOpen(false);
       setSaveReportPreview(null);
+      setClientsReceivedReport("");
       setEditRecoveryOpen(false);
       clearReportEditSession();
       await refreshClosing();
@@ -326,6 +340,8 @@ function FinanceLayoutInner() {
           preview={saveReportPreview}
           loading={loadingSaveReport}
           saving={savingReport}
+          clientsReceived={clientsReceivedReport}
+          onClientsReceivedChange={setClientsReceivedReport}
           onClose={() => setSaveReportOpen(false)}
           onConfirm={confirmSaveReport}
         />
@@ -335,12 +351,26 @@ function FinanceLayoutInner() {
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         projectId={projectId}
+        project={project}
         periodStart={period.periodStart}
         periodEnd={period.periodEnd}
         onSaved={(data) => {
-          updateProjectSettings({ finance_config: { closing_schedule: data.closing_schedule, bonus_rules: data.bonus_rules } });
+          updateProjectSettings({
+            finance_config: {
+              closing_schedule: data.closing_schedule,
+              bonus_rules: data.bonus_rules,
+            },
+          });
           period.applyPreset("atual");
           notify("Configurações salvas.", "success");
+        }}
+        onProjectUpdated={async () => {
+          try {
+            const { data } = await api.get(`/api/projects/${projectId}`);
+            selectProject(data);
+          } catch {
+            /* nome atualizado; falha ao recarregar é não crítica */
+          }
         }}
       />
     </div>

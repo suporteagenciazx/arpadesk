@@ -218,7 +218,7 @@ def update_sale(
 ):
     if not user_has_project_access(db, user, project_id):
         raise HTTPException(403, "Sem acesso")
-    if data.status is not None and not can_change_sale_status(db, user):
+    if data.status is not None and not can_change_sale_status(db, user, project_id):
         raise HTTPException(403, "Apenas o financeiro pode alterar o status da venda")
     sale = db.query(Sale).filter(Sale.id == sale_id, Sale.project_id == project_id).first()
     if not sale:

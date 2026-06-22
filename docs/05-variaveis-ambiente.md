@@ -56,9 +56,13 @@ Referência das variáveis usadas pelo Arpadesk.
 | Variável | Obrigatório | Default dev | Descrição |
 |----------|-------------|-------------|-----------|
 | `CORS_ORIGINS` | sim | `http://localhost:5173` | Origens permitidas (CSV ou única URL) |
-| `VITE_API_URL` | sim | `http://localhost:8000` | URL base da API para o frontend (build e dev) |
+| `VITE_API_URL` | sim (dev) | `http://localhost:8000` | URL base da API — **dev local e build manual** |
 
-**VPS:** use `https://seudominio.com.br` — sem barra final, sem `/api`.
+**Dev local:** `VITE_API_URL=http://localhost:8000` no `.env` ou `frontend/.env`.
+
+**VPS:** o `docker-compose.yml` passa `VITE_API_URL=https://${DOMAIN}` no **build** do frontend — não precisa colocar `VITE_API_URL` no `.env` da VPS, desde que `DOMAIN` esteja correto.
+
+**VPS CORS:** `CORS_ORIGINS=https://seudominio.com.br` — sem barra final, sem `/api`, sem `*`.
 
 ---
 

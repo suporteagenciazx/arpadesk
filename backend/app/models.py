@@ -67,6 +67,11 @@ class CashClosingStatus(str, enum.Enum):
     confirmed = "confirmed"
 
 
+class MarketingChannel(str, enum.Enum):
+    sms = "sms"
+    whatsapp = "whatsapp"
+
+
 def utcnow():
     return datetime.now(timezone.utc)
 
@@ -100,6 +105,20 @@ class User(Base):
     privileges: Mapped[list["UserPrivilege"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", passive_deletes=True
     )
+    sectors: Mapped[list["UserSector"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class UserSector(Base):
+    __tablename__ = "user_sectors"
+    __table_args__ = (UniqueConstraint("user_id", "sector_id", name="uq_user_sector"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    sector_id: Mapped[str] = mapped_column(String(50))
+
+    user: Mapped["User"] = relationship(back_populates="sectors")
 
 
 class UserPrivilege(Base):
@@ -147,6 +166,12 @@ class Project(Base):
     automations: Mapped[list["ProjectAutomation"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
+    marketing_dispatches: Mapped[list["MarketingDispatch"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+    clients: Mapped[list["ProjectClient"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
 
 
 class ProjectAutomation(Base):
@@ -191,6 +216,7 @@ class CashClosing(Base):
     reopen_scope: Mapped[str | None] = mapped_column(String(20), nullable=True)
     report_public_id: Mapped[str | None] = mapped_column(String(5), nullable=True)
     report_tabs_locked: Mapped[bool] = mapped_column(Boolean, default=False)
+    clients_received: Mapped[int | None] = mapped_column(nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="cash_closings")
     closed_by: Mapped["User"] = relationship(foreign_keys=[closed_by_id])
@@ -206,6 +232,7 @@ class ProjectMember(Base):
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     commission_percent: Mapped[float] = mapped_column(Numeric(5, 2), default=0)
+    access_config: Mapped[dict] = mapped_column(JSONB, default=dict)
 
     project: Mapped["Project"] = relationship(back_populates="members")
     user: Mapped["User"] = relationship(back_populates="project_memberships")
@@ -251,6 +278,27 @@ class Sale(Base):
 
     project: Mapped["Project"] = relationship(back_populates="sales")
     participant: Mapped["User"] = relationship(foreign_keys=[participant_id])
+
+
+class ProjectClient(Base):
+    __tablename__ = "project_clients"
+    __table_args__ = (UniqueConstraint("project_id", "cnpj", name="uq_project_client_cnpj"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    cnpj: Mapped[str] = mapped_column(String(18))
+    phone: Mapped[str | None] = mapped_column(String(22), nullable=True)
+    estado: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    porte: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    opening_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    registered_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    project: Mapped["Project"] = relationship(back_populates="clients")
 
 
 class Expense(Base):
@@ -404,6 +452,45 @@ class TelegramSettings(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class MarketingDispatch(Base):
+    __tablename__ = "marketing_dispatches"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id", "period_start", "period_end", "channel", name="uq_marketing_dispatch_period_channel"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    channel: Mapped[MarketingChannel] = mapped_column(Enum(MarketingChannel), default=MarketingChannel.sms)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    project: Mapped["Project"] = relationship(back_populates="marketing_dispatches")
+    lists: Mapped[list["MarketingList"]] = relationship(
+        back_populates="dispatch", cascade="all, delete-orphan"
+    )
+
+
+class MarketingList(Base):
+    __tablename__ = "marketing_lists"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    dispatch_id: Mapped[int] = mapped_column(ForeignKey("marketing_dispatches.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(200))
+    exported_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    sent_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    investment_amount: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    message_count: Mapped[int] = mapped_column(default=0)
+    attachment_object_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    dispatch: Mapped["MarketingDispatch"] = relationship(back_populates="lists")
+
+
 class TelegramBot(Base):
     __tablename__ = "telegram_bots"
 
@@ -414,4 +501,12 @@ class TelegramBot(Base):
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSONB, default=dict)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

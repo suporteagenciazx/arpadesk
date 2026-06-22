@@ -1,12 +1,12 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import require_admin_finance, user_has_project_access
 from app.models import User
-from app.schemas import ReportSavePreviewOut
+from app.schemas import ReportSaveCommitIn, ReportSavePreviewOut
 from app.services.report_save import build_report_save_preview, commit_report_save
 
 router = APIRouter(prefix="/api/projects/{project_id}/report-save", tags=["report-save"])
@@ -32,6 +32,7 @@ def save_weekly_report(
     project_id: int,
     period_start: str = Query(...),
     period_end: str = Query(...),
+    body: ReportSaveCommitIn = Body(default_factory=ReportSaveCommitIn),
     user: User = Depends(require_admin_finance),
     db: Session = Depends(get_db),
 ):
@@ -39,7 +40,7 @@ def save_weekly_report(
         raise HTTPException(403, "Sem acesso")
     ps = date.fromisoformat(period_start)
     pe = date.fromisoformat(period_end)
-    data = commit_report_save(db, project_id, ps, pe, user)
+    data = commit_report_save(db, project_id, ps, pe, user, clients_received=body.clients_received)
     from app.services.cache import cache_delete_prefix
 
     cache_delete_prefix(f"summary:{project_id}:")

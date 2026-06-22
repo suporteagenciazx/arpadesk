@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import get_current_user, require_admin, user_has_project_access
-from app.schemas import CashClosingOut, CashClosingPreviewOut, CashClosingReopenIn, CashClosingResaveOut
+from app.schemas import CashClosingOut, CashClosingPreviewOut, CashClosingReopenIn, CashClosingResaveOut, CashClosingSubmitIn
 from app.services.cash_closing import (
     build_cash_closing_snapshot,
     cancel_cash_closing,
@@ -66,6 +66,7 @@ def submit_cash_closing(
     project_id: int,
     period_start: str = Query(...),
     period_end: str = Query(...),
+    body: CashClosingSubmitIn = Body(default_factory=CashClosingSubmitIn),
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -73,7 +74,7 @@ def submit_cash_closing(
         raise HTTPException(403, "Sem acesso")
     ps = date.fromisoformat(period_start)
     pe = date.fromisoformat(period_end)
-    closing = create_cash_closing(db, project_id, ps, pe, user)
+    closing = create_cash_closing(db, project_id, ps, pe, user, clients_received=body.clients_received)
     data = cash_closing_to_dict(closing)
     data["frozen_for_user"] = is_period_frozen_for_user(db, project_id, ps, pe, user)
     return CashClosingOut(**data)

@@ -54,8 +54,15 @@ export function CashClosingProvider({ children }) {
     }
   }, [projectId, period.periodStart, period.periodEnd, period.params]);
 
-  const submitClosing = useCallback(async () => {
-    const { data } = await api.post(`/api/projects/${projectId}/cash-closing`, null, {
+  const submitClosing = useCallback(async (clientsReceived) => {
+    let body = {};
+    if (clientsReceived != null && clientsReceived !== "") {
+      const parsed = parseInt(clientsReceived, 10);
+      if (!Number.isNaN(parsed) && parsed >= 0) {
+        body = { clients_received: parsed };
+      }
+    }
+    const { data } = await api.post(`/api/projects/${projectId}/cash-closing`, body, {
       params: period.params(),
     });
     setClosing(data);

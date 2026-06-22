@@ -18,7 +18,7 @@ import {
 import { formatSaleMemberLabel } from "../../lib/helpers";
 import { todayLocalIso } from "../../lib/calendar";
 import { mergeFinanceConfig, isManualClosingAllowed, isWithinManualClosingWindow } from "../../lib/financeConfig";
-import { canManageDefaultFine, isPeriodLockedForUser } from "../../lib/permissions";
+import { canChangeSaleStatus, canManageDefaultFine, isPeriodLockedForUser } from "../../lib/permissions";
 import { canCashClosing } from "../../lib/privileges";
 import { FineIcon, FloppyDiskIcon } from "../../components/Icons";
 import { maskCnpj, maskPhone, maskMoney, parseMoney, isValidCnpjMasked, isValidPhoneMasked } from "../../lib/masks";
@@ -38,7 +38,8 @@ const statusLabel = (value) => SALE_STATUSES.find((s) => s.value === value)?.lab
 
 export default function Vendas() {
   const { projectId } = useParams();
-  const { canChangeSaleStatus, canRegisterSale, user, isAdmin } = useAuth();
+  const { canRegisterSale, user, isAdmin } = useAuth();
+  const pid = Number(projectId);
   const { project: ctxProject } = useProject();
   const { notify } = useToast();
   const [sales, setSales] = useState([]);
@@ -69,6 +70,7 @@ export default function Vendas() {
   const [savingFine, setSavingFine] = useState(false);
   const [cashClosingOpen, setCashClosingOpen] = useState(false);
   const [savingClosing, setSavingClosing] = useState(false);
+  const [clientsReceivedClosing, setClientsReceivedClosing] = useState("");
   const [unlocking, setUnlocking] = useState(false);
 
   const period = useFinancePeriod();
@@ -89,10 +91,10 @@ export default function Vendas() {
   const canEditSales = weekActive && !tabsLocked && canOperate;
   const canEditFines = weekActive && !tabsLocked && canOperate;
   const canChangeStatus =
-    weekActive && canChangeSaleStatus && !tabsLocked && canOperate;
+    weekActive && canChangeSaleStatus(user, pid) && !tabsLocked && canOperate;
   const canManageFine = canManageDefaultFine(user?.level);
-  const periodLocked = isPeriodLockedForUser(user, isAdmin);
-  const canUseCashClosing = canCashClosing(user);
+  const periodLocked = isPeriodLockedForUser(user, isAdmin, pid);
+  const canUseCashClosing = canCashClosing(user, pid);
   const financeConfig = useMemo(() => mergeFinanceConfig(project?.settings || ctxProject?.settings), [project?.settings, ctxProject?.settings]);
   const manualClosingOk =
     isManualClosingAllowed(financeConfig) && isWithinManualClosingWindow(financeConfig);
@@ -124,8 +126,9 @@ export default function Vendas() {
     setSavingClosing(true);
     setError("");
     try {
-      await submitClosing();
+      await submitClosing(clientsReceivedClosing);
       setCashClosingOpen(false);
+      setClientsReceivedClosing("");
       period.bumpReload();
       notify("Fechamento de caixa registrado.", "success");
     } catch (err) {
@@ -1136,6 +1139,16 @@ export default function Vendas() {
             {period.weekInfo?.label ? ` · ${period.weekInfo.label}` : ""}
           </p>
           <CashClosingSummary snapshot={preview} />
+          <label className="full cash-closing-clients-field">
+            Clientes recebidos (marketing)
+            <input
+              type="number"
+              min="0"
+              placeholder="Opcional — pode preencher depois no Marketing"
+              value={clientsReceivedClosing}
+              onChange={(e) => setClientsReceivedClosing(e.target.value)}
+            />
+          </label>
           <div className="form-actions">
             <button type="button" className="btn btn-ghost" onClick={() => setCashClosingOpen(false)}>
               Cancelar

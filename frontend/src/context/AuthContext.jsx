@@ -1,7 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import api from "../lib/api";
-import { canConfirmSale } from "../lib/privileges";
-
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
@@ -58,7 +56,6 @@ export function AuthProvider({ children }) {
         isAdmin: user?.level === "admin",
         isFinanceiro: user?.level === "financeiro",
         isContador: user?.level === "contador" || user?.level === "agente",
-        canChangeSaleStatus: canConfirmSale(user),
         canRegisterSale: canRegisterSale(user?.level),
         canAccessPagamentos: user?.level === "admin",
       }}

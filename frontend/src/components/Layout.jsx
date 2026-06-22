@@ -2,18 +2,20 @@ import { useEffect, useState } from "react";
 import { Navigate, Link, useLocation, useNavigate } from "react-router-dom";
 import PageTransition from "./PageTransition";
 import {
-  FinanceIcon,
+  GestaoIcon,
   LogOutIcon,
   MenuIcon,
   PanelLeftIcon,
   SettingsIcon,
-  SupportIcon,
   TelegramIcon,
   UsersIcon,
 } from "./Icons";
 import ThemeSwitch from "./ThemeSwitch";
 import { useAuth } from "../context/AuthContext";
 import { useProject } from "../context/ProjectContext";
+import { useSectors } from "../context/SectorsContext";
+import { sectorNavIcon } from "../lib/sectorIcons";
+import { userCanAccessSector } from "../lib/userSectors";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 
 const SIDEBAR_KEY = "arpadesk_sidebar_collapsed";
@@ -30,6 +32,7 @@ function NavLabel({ icon: Icon, children, collapsed }) {
 export default function Layout() {
   const { user, logout, loading, isAdmin } = useAuth();
   const { clearProject } = useProject();
+  const { sidebarSectors } = useSectors();
   const location = useLocation();
   const navigate = useNavigate();
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -44,12 +47,20 @@ export default function Layout() {
     }
   });
 
-  const financeActive =
-    location.pathname === "/financeiro" || location.pathname.includes("/financeiro");
-  const suporteActive = location.pathname.startsWith("/suporte");
+  const gestaoActive = location.pathname.startsWith("/gestao");
   const configActive =
     isAdmin &&
     (location.pathname === "/config/usuarios" || location.pathname === "/config/telegram");
+
+  const isSectorRouteActive = (route) => {
+    if (!route) return false;
+    return location.pathname === route || location.pathname.includes(`${route}/`);
+  };
+
+  const goSector = (route, active) => {
+    clearProject();
+    if (!active && route) navigate(route);
+  };
 
   const iconOnly = collapsed && !isMobile;
 
@@ -77,11 +88,6 @@ export default function Layout() {
 
   if (loading) return <div className="center-page page-transition">Carregando...</div>;
   if (!user) return <Navigate to="/login" replace />;
-
-  const goFinanceiro = () => {
-    clearProject();
-    if (!financeActive) navigate("/financeiro");
-  };
 
   const toggleConfig = () => {
     if (iconOnly) {
@@ -155,20 +161,29 @@ export default function Layout() {
         </div>
 
         <nav>
-          <Link
-            to="/financeiro"
-            className={`nav-item ${financeActive ? "active" : ""}`}
-            onClick={goFinanceiro}
-          >
-            <NavLabel icon={FinanceIcon} collapsed={iconOnly}>
-              Financeiro
-            </NavLabel>
-          </Link>
+          {sidebarSectors
+            .filter((s) => userCanAccessSector(user, s, isAdmin))
+            .map((s) => {
+            const Icon = sectorNavIcon(s.id);
+            const active = isSectorRouteActive(s.route);
+            return (
+              <Link
+                key={s.id}
+                to={s.route}
+                className={`nav-item ${active ? "active" : ""}`}
+                onClick={() => goSector(s.route, active)}
+              >
+                <NavLabel icon={Icon} collapsed={iconOnly}>
+                  {s.label}
+                </NavLabel>
+              </Link>
+            );
+          })}
 
           {isAdmin && (
-            <Link to="/suporte" className={`nav-item ${suporteActive ? "active" : ""}`}>
-              <NavLabel icon={SupportIcon} collapsed={iconOnly}>
-                Suporte
+            <Link to="/gestao" className={`nav-item ${gestaoActive ? "active" : ""}`}>
+              <NavLabel icon={GestaoIcon} collapsed={iconOnly}>
+                Gestão
               </NavLabel>
             </Link>
           )}

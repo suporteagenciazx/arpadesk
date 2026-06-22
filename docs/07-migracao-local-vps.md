@@ -1,13 +1,66 @@
 # 07 — Migração local → VPS (dados de teste)
 
-Guia para levar **o mesmo estado** do seu PC (projeto AGENCIA, vendas, relatórios salvos, semana aberta, comprovantes MinIO) para a VPS com Docker + Portainer.
+Guia para levar **o mesmo estado** do seu PC para a VPS: usuários, senhas, projeto AGENCIA, atribuições, privilégios por setor, configurações, pré-definições de semana, vendas, relatórios salvos, comprovantes MinIO, marketing e automações Telegram.
 
-> Deploy da stack em si: [03-deploy-vps.md](./03-deploy-vps.md)  
+> **Este guia é obrigatório** se você já usa o sistema localmente e quer a VPS **idêntica** ao PC.  
+> Deploy da infra (DNS, Docker, clone): **[03-deploy-vps.md](./03-deploy-vps.md)** — veja o **Passo 7** lá para o resumo.  
 > Variáveis de ambiente: [05-variaveis-ambiente.md](./05-variaveis-ambiente.md)
 
 ---
 
-## O que será migrado
+## Inventário completo — o que vai igual para a VPS
+
+Tudo abaixo vem no **`postgres.sql`** (dump PostgreSQL), exceto arquivos binários (MinIO).
+
+### Usuários, acesso e permissões
+
+| Dado | Tabela / campo | O que você vê na UI |
+|------|----------------|---------------------|
+| Contas de login | `users` | Gestão → Usuários (email, nome, nível admin/equipe) |
+| Setores globais por usuário | `user_sectors` | Sidebar — quais setores cada um enxerga |
+| Privilégios legados globais | `user_privileges` | Compatibilidade com fluxos antigos |
+| **Atribuição a projetos** | `project_members` | Usuário → projetos vinculados |
+| **Permissões por projeto** | `project_members.access_config` | Projeto → aba **Permissões** (setores + privilégios Vendas/Pagamentos) |
+| Comissão por projeto | `project_members.commission_rate` | % de comissão na ficha do usuário |
+| Registry de setores | `app_settings` (chave `sector_registry`) | Gestão → Setores (cores, rotas, visibilidade) |
+
+### Projetos e configurações
+
+| Dado | Tabela / campo | O que você vê na UI |
+|------|----------------|---------------------|
+| Projetos (ex.: AGENCIA) | `projects` | Seletor de projeto, nome, slug |
+| Config financeira | `projects.settings` → `finance_config` | Presets de semana, período **Atual**, overlays CAIXA FECHADO |
+| Setores do projeto | `projects.settings` → setores habilitados | Sidebar por projeto |
+| Pagamentos do projeto | `project_payment_settings` | Configurações de pagamento |
+| Automações | `project_automations` | Automações por projeto |
+| Fechamentos de caixa | `cash_closings` | Histórico de fechamentos |
+| Telegram | `telegram_settings`, `telegram_bots` | Config → Telegram |
+
+### Operação (Financeiro / Marketing)
+
+| Dado | Tabela | O que você vê na UI |
+|------|--------|---------------------|
+| Vendas | `sales` | Vendas, comprovantes (metadados) |
+| Despesas | `expenses` | Despesas |
+| Pagamentos | `payments` | Pagamentos |
+| Multas por período | `period_fines` | Multas |
+| Comissões | `period_commissions` | Comissões |
+| Clientes marketing (CNPJ) | `project_clients` | Marketing → Clientes |
+| Campanhas / listas | `marketing_dispatches`, `marketing_lists` | Marketing |
+| Importações de relatório | `report_imports`, `report_import_logs` | Arquivo, import PDF |
+| Credenciais Suporte | registros criptografados | Suporte → Cofre |
+
+### Arquivos (fora do PostgreSQL)
+
+| Dado | Onde fica localmente | Arquivo de backup |
+|------|----------------------|-------------------|
+| Comprovantes (CP), PDFs importados | volume `minio_dev_data` | `minio_data.tar.gz` |
+| Uploads legado (se existir) | pasta `./data/uploads` | `uploads_data.tar.gz` |
+| Cache Redis | volume `redis_dev_data` | **Não migrar** — recria em segundos |
+
+---
+
+## O que será migrado (resumo técnico)
 
 | Dado | Onde fica localmente | Como migrar |
 |------|----------------------|-------------|
@@ -150,7 +203,7 @@ sudo chown -R $USER:$USER /srv/arpadesk-staging
 cd /srv/arpadesk-staging
 
 git clone https://github.com/suporteagenciazx/arpadesk.git .
-cp .env.example .env
+cp .env.vps.example .env
 nano .env
 chmod 600 .env
 ```
@@ -302,15 +355,28 @@ Se preferir gerenciar pela UI:
 - [ ] HTTPS sem aviso de certificado
 - [ ] Portas 5432, 6379, 9000 **não** expostas publicamente (`ss -tlnp | grep -E '5432|6379|9000'` na VPS deve mostrar só localhost ou nada)
 
-### Dados AGENCIA
+### Usuários, permissões e projetos
 
-- [ ] Login com usuário existente (não o seed — admin já veio no dump)
+- [ ] Login com **mesmo email/senha** do PC (não o seed do `.env`)
+- [ ] Gestão → **Usuários**: mesma lista, mesmos projetos atribuídos
+- [ ] Projeto **AGENCIA** → aba **Permissões**: setores e privilégios iguais ao PC
+- [ ] Sidebar: mesmos setores visíveis por usuário (admin vs equipe)
+- [ ] Gestão → **Setores**: registry igual (cores, rotas)
+
+### Dados AGENCIA (financeiro)
+
 - [ ] Projeto **AGENCIA** visível com vendas/despesas
 - [ ] Admin: preset **Atual** = mesma semana aberta do PC (ex.: 22–26/06/2026)
 - [ ] Equipe: overlay **CAIXA FECHADO** se ainda antes da segunda da semana vigente
-- [ ] Aba **Arquivo**: relatório 15–19/06 salvo; ícone ↩ restaurar vigência (admin)
+- [ ] Aba **Arquivo**: relatórios salvos; ícone ↩ restaurar vigência (admin)
 - [ ] Download de comprovante de venda abre arquivo (MinIO ok)
 - [ ] Relatório semanal / import PDF funciona
+
+### Marketing e integrações (se já configurou local)
+
+- [ ] Marketing → **Clientes** (CNPJ) com mesmos registros
+- [ ] Config → **Telegram** com mesmas configurações
+- [ ] Suporte → **Cofre** abre credenciais (se `VAULT_MASTER_KEY` correto)
 
 ### Comandos de verificação na VPS
 

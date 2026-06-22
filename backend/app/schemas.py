@@ -27,11 +27,32 @@ class UserBase(BaseModel):
     level: UserLevel
 
 
+class ProjectSectorAccessIn(BaseModel):
+    sector_id: str
+    enabled: bool = False
+    privileges: list[str] = Field(default_factory=list)
+
+
+class ProjectAssignmentIn(BaseModel):
+    project_id: int
+    commission_percent: float = 0
+    sectors: list[ProjectSectorAccessIn] = Field(default_factory=list)
+
+
+class ProjectAssignmentOut(BaseModel):
+    id: int
+    name: str
+    commission_percent: float = 0
+    sectors: list[ProjectSectorAccessIn] = Field(default_factory=list)
+
+
 class UserCreate(UserBase):
     password: Optional[str] = None
     project_ids: list[int] = Field(default_factory=list)
     project_commissions: dict[str, float] = Field(default_factory=dict)
+    project_assignments: list[ProjectAssignmentIn] = Field(default_factory=list)
     privileges: list[str] = Field(default_factory=list)
+    sector_ids: list[str] = Field(default_factory=list)
 
 
 class UserUpdate(BaseModel):
@@ -45,13 +66,16 @@ class UserUpdate(BaseModel):
     is_active: Optional[bool] = None
     project_ids: Optional[list[int]] = None
     project_commissions: Optional[dict[str, float]] = None
+    project_assignments: Optional[list[ProjectAssignmentIn]] = None
     privileges: Optional[list[str]] = None
+    sector_ids: Optional[list[str]] = None
 
 
 class ProjectBrief(BaseModel):
     id: int
     name: str
     commission_percent: float = 0
+    sectors: list[ProjectSectorAccessIn] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -68,6 +92,7 @@ class UserOut(BaseModel):
     is_active: bool
     projects: list[ProjectBrief] = []
     privileges: list[str] = []
+    sector_ids: list[str] = []
 
     model_config = {"from_attributes": True}
 
@@ -112,6 +137,15 @@ class CashClosingOut(BaseModel):
     reopen_scope: Optional[str] = None
     report_public_id: Optional[str] = None
     report_tabs_locked: bool = False
+    clients_received: Optional[int] = None
+
+
+class CashClosingSubmitIn(BaseModel):
+    clients_received: Optional[int] = None
+
+
+class ReportSaveCommitIn(BaseModel):
+    clients_received: Optional[int] = None
 
 
 class ReportSavePreviewOut(BaseModel):
@@ -158,6 +192,76 @@ class NotificationSettingsUpdate(BaseModel):
 class ProjectCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    sectors: list[str] = Field(default_factory=list)
+    origin_sector: str = "financeiro"
+
+
+class ProjectSectorToggle(BaseModel):
+    sector_id: str
+    enabled: bool
+
+
+class ProjectSectorsPatch(BaseModel):
+    sectors: list[ProjectSectorToggle]
+
+
+class SectorDefinitionIn(BaseModel):
+    id: Optional[str] = None
+    label: str
+    color: str = "#64748b"
+    always_on: bool = False
+    admin_only: bool = False
+    sidebar_visible: bool = True
+    sidebar_order: int = 0
+    route: Optional[str] = None
+
+
+class SectorRegistryOut(BaseModel):
+    sectors: list[dict]
+
+
+class SectorRegistryUpdate(BaseModel):
+    sectors: list[SectorDefinitionIn]
+
+
+class GestaoProjectOut(BaseModel):
+    id: int
+    name: str
+    slug: str
+    description: Optional[str] = None
+    sectors: list[dict] = Field(default_factory=list)
+
+
+class GestaoDashboardTotals(BaseModel):
+    billing_total: float = 0
+    expenses_total: float = 0
+    investment_total: float = 0
+    profit_total: float = 0
+    commissions_paid_total: float = 0
+    roas_ratio: Optional[float] = None
+    roi_percent: Optional[float] = None
+    cash_closings_count: int = 0
+
+
+class GestaoDashboardProjectRow(BaseModel):
+    project_id: int
+    project_name: str
+    billing_total: float = 0
+    expenses_total: float = 0
+    investment_total: float = 0
+    profit_total: float = 0
+    commissions_paid_total: float = 0
+    roas_ratio: Optional[float] = None
+    roi_percent: Optional[float] = None
+    cash_closings_count: int = 0
+
+
+class GestaoDashboardOut(BaseModel):
+    period_start: Optional[str] = None
+    period_end: Optional[str] = None
+    project_count: int = 0
+    totals: GestaoDashboardTotals
+    by_project: list[GestaoDashboardProjectRow] = Field(default_factory=list)
 
 
 class ProjectUpdate(BaseModel):
@@ -201,6 +305,9 @@ class BonusRuleIn(BaseModel):
     reward_value: float = 0
     participant_ids: list[int] = Field(default_factory=list)
     description: str = ""
+    expires_at: Optional[str] = None
+    notify_on_automation: bool = False
+    notify_message: str = ""
 
 
 class ProjectFinanceConfigPatch(BaseModel):
@@ -217,6 +324,19 @@ class ProjectOut(BaseModel):
     is_active: bool
 
     model_config = {"from_attributes": True}
+
+
+class ProjectPermissionPatch(BaseModel):
+    sectors: list[ProjectSectorAccessIn] = Field(default_factory=list)
+
+
+class ProjectPermissionMemberOut(BaseModel):
+    user_id: int
+    user_name: str
+    user_level: UserLevel
+    user_email: Optional[str] = None
+    commission_percent: float = 0
+    sectors: list[ProjectSectorAccessIn] = Field(default_factory=list)
 
 
 class ProjectMemberIn(BaseModel):
@@ -582,6 +702,143 @@ class ProjectAutomationTestIn(BaseModel):
     chat_id: Optional[str] = None
     message: Optional[str] = None
     template: Optional[str] = None
+
+
+class ProjectMarketingConfigOut(BaseModel):
+    enabled: bool = False
+    channels: list[str] = Field(default_factory=lambda: ["sms", "whatsapp"])
+    expense_types_marketing: list[str] = Field(default_factory=lambda: ["DIVULGACAO"])
+
+
+class ProjectMarketingConfigPatch(BaseModel):
+    enabled: Optional[bool] = None
+    channels: Optional[list[str]] = None
+    expense_types_marketing: Optional[list[str]] = None
+
+
+class MarketingWeekRowOut(BaseModel):
+    period_start: str
+    period_end: str
+    description: str
+    month_label: str
+    clients_received: Optional[int] = None
+    clients_received_editable: bool = True
+    sms_sent_total: int = 0
+    whatsapp_sent_total: int = 0
+    messages_sent_total: int = 0
+    dispatch_count: int = 0
+    list_count: int = 0
+    investment_amount: float = 0
+    investment_mode: str = "marketing"
+    marketing_expenses_total: float = 0
+    all_expenses_total: float = 0
+    billing_total: float = 0
+    profit: float = 0
+    report_saved: bool = False
+    cash_closing_id: Optional[int] = None
+
+
+class MarketingClientsReceivedPatch(BaseModel):
+    period_start: str
+    period_end: str
+    clients_received: Optional[int] = None
+
+
+class MarketingListOut(BaseModel):
+    id: int
+    dispatch_id: int
+    channel: str
+    name: str
+    exported_at: Optional[str] = None
+    sent_at: Optional[str] = None
+    investment_amount: float = 0
+    message_count: int = 0
+    has_attachment: bool = False
+
+
+class MarketingListCreate(BaseModel):
+    period_start: str
+    period_end: str
+    channel: str = "sms"
+    name: str
+    exported_at: Optional[str] = None
+    sent_at: Optional[str] = None
+    investment_amount: float = 0
+    message_count: int = 0
+
+
+class MarketingListUpdate(BaseModel):
+    name: Optional[str] = None
+    exported_at: Optional[str] = None
+    sent_at: Optional[str] = None
+    investment_amount: Optional[float] = None
+    message_count: Optional[int] = None
+
+
+class MarketingReportComparison(BaseModel):
+    billing_pct: Optional[float] = None
+    investment_pct: Optional[float] = None
+    profit_pct: Optional[float] = None
+    clients_pct: Optional[float] = None
+
+
+class ProjectClientOut(BaseModel):
+    id: int
+    cnpj: str
+    cnpj_display: str
+    phone: Optional[str] = None
+    estado: Optional[str] = None
+    porte: Optional[str] = None
+    opening_date: Optional[str] = None
+    email: Optional[str] = None
+    registered_at: Optional[str] = None
+    sales_count: int = 0
+    total_paid: float = 0
+
+
+class ProjectClientUpdate(BaseModel):
+    phone: Optional[str] = None
+    estado: Optional[str] = None
+    porte: Optional[str] = None
+    opening_date: Optional[str] = None
+    email: Optional[str] = None
+
+
+class ProjectClientDeleteRequest(BaseModel):
+    admin_password: str
+
+
+class ProjectClientSaleOut(BaseModel):
+    id: int
+    sale_code: str
+    amount: float
+    sale_date: Optional[str] = None
+    phone: Optional[str] = None
+    status: str
+
+
+class MarketingReportOut(BaseModel):
+    period_start: str
+    period_end: str
+    description: str
+    billing_total: float = 0
+    investment_total: float = 0
+    investment_mode: str = "marketing"
+    marketing_expenses_total: float = 0
+    all_expenses_total: float = 0
+    profit: float = 0
+    clients_received: Optional[int] = None
+    sms_sent_total: int = 0
+    whatsapp_sent_total: int = 0
+    messages_sent_total: int = 0
+    list_count: int = 0
+    list_investment_total: float = 0
+    roi_percent: Optional[float] = None
+    roas_ratio: Optional[float] = None
+    cost_per_client: Optional[float] = None
+    report_saved: bool = False
+    comparison: Optional[MarketingReportComparison] = None
+    lists: list[MarketingListOut] = Field(default_factory=list)
 
 
 TokenResponse.model_rebuild()

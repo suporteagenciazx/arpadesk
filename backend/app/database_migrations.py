@@ -149,6 +149,75 @@ def run_migrations() -> None:
         "ALTER TYPE projectautomationtype ADD VALUE IF NOT EXISTS 'payment_paid'",
         "ALTER TYPE projectautomationtype ADD VALUE IF NOT EXISTS 'fine_added'",
         "ALTER TYPE projectautomationtype ADD VALUE IF NOT EXISTS 'expense_changed'",
+        "ALTER TABLE cash_closings ADD COLUMN IF NOT EXISTS clients_received INTEGER",
+        """CREATE TABLE IF NOT EXISTS marketing_dispatches (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            period_start DATE NOT NULL,
+            period_end DATE NOT NULL,
+            channel VARCHAR(20) NOT NULL DEFAULT 'sms',
+            sent_at TIMESTAMPTZ,
+            notes TEXT,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            CONSTRAINT uq_marketing_dispatch_period_channel UNIQUE (project_id, period_start, period_end, channel)
+        )""",
+        """CREATE TABLE IF NOT EXISTS marketing_lists (
+            id SERIAL PRIMARY KEY,
+            dispatch_id INTEGER NOT NULL REFERENCES marketing_dispatches(id) ON DELETE CASCADE,
+            name VARCHAR(200) NOT NULL,
+            exported_at DATE,
+            sent_at DATE,
+            investment_amount NUMERIC(12, 2) DEFAULT 0,
+            message_count INTEGER DEFAULT 0,
+            attachment_object_key VARCHAR(500),
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )""",
+        """CREATE TABLE IF NOT EXISTS app_settings (
+            key VARCHAR(64) PRIMARY KEY,
+            value JSONB DEFAULT '{}',
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )""",
+        """CREATE TABLE IF NOT EXISTS user_sectors (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            sector_id VARCHAR(50) NOT NULL,
+            CONSTRAINT uq_user_sector UNIQUE (user_id, sector_id)
+        )""",
+        """INSERT INTO user_sectors (user_id, sector_id)
+           SELECT id, 'financeiro' FROM users
+           WHERE level != 'ilustrativo'
+           AND NOT EXISTS (
+             SELECT 1 FROM user_sectors us WHERE us.user_id = users.id
+           )""",
+        """INSERT INTO user_sectors (user_id, sector_id)
+           SELECT id, 'marketing' FROM users
+           WHERE level = 'admin'
+           AND NOT EXISTS (
+             SELECT 1 FROM user_sectors us
+             WHERE us.user_id = users.id AND us.sector_id = 'marketing'
+           )""",
+        """INSERT INTO user_sectors (user_id, sector_id)
+           SELECT id, 'suporte' FROM users
+           WHERE level = 'admin'
+           AND NOT EXISTS (
+             SELECT 1 FROM user_sectors us
+             WHERE us.user_id = users.id AND us.sector_id = 'suporte'
+           )""",
+        "ALTER TABLE project_members ADD COLUMN IF NOT EXISTS access_config JSONB DEFAULT '{}'",
+        """CREATE TABLE IF NOT EXISTS project_clients (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            cnpj VARCHAR(18) NOT NULL,
+            phone VARCHAR(22),
+            estado VARCHAR(2),
+            porte VARCHAR(80),
+            opening_date DATE,
+            email VARCHAR(255),
+            registered_at DATE,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW(),
+            CONSTRAINT uq_project_client_cnpj UNIQUE (project_id, cnpj)
+        )""",
     ]
     with engine.begin() as conn:
         for stmt in statements:

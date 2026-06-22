@@ -58,6 +58,50 @@ export function FinanceIcon({ size = 18, className = "" }) {
   );
 }
 
+export function MarketingIcon({ size = 18, className = "" }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M3 11v2a4 4 0 0 0 4 4h10a4 4 0 0 0 4-4v-2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+      <path d="M12 16v3" />
+      <path d="M8 19h8" />
+    </svg>
+  );
+}
+
+export function GestaoIcon({ size = 18, className = "" }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+    </svg>
+  );
+}
+
 export function SupportIcon({ size = 18, className = "" }) {
   return (
     <svg

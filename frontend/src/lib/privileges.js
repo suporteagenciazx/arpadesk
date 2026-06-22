@@ -1,50 +1,58 @@
-export const PRIVILEGE_CASH_CLOSING = "cash_closing";
-export const PRIVILEGE_SALE_CONFIRM = "sale_confirm";
-export const PRIVILEGE_FULL_HISTORY = "full_history";
-export const PRIVILEGE_CREATE_PROJECT = "create_project";
+import {
+  getProjectAssignment,
+  hasProjectSector,
+  projectSectorPrivileges,
+} from "./memberAccess";
+import {
+  PRIVILEGE_CASH_CLOSING,
+  PRIVILEGE_SALE_CONFIRM,
+  PRIVILEGE_PAYMENT_CONFIRM,
+  PRIVILEGE_FULL_HISTORY,
+  PRIVILEGE_CREATE_PROJECT,
+  PRIVILEGE_CATALOG,
+} from "./privilegeCatalog";
 
-export const PRIVILEGE_CATALOG = [
-  {
-    code: PRIVILEGE_CASH_CLOSING,
-    label: "Fechamento de caixa",
-    description: "Permite fechar o caixa da semana operacional.",
-  },
-  {
-    code: PRIVILEGE_SALE_CONFIRM,
-    label: "Autorização de confirmação de vendas",
-    description: "Permite alterar o status das vendas (ex.: confirmar como OK).",
-  },
-  {
-    code: PRIVILEGE_FULL_HISTORY,
-    label: "Histórico completo",
-    description: "Permite filtrar outros períodos, usar datas personalizadas e navegar entre semanas.",
-  },
-  {
-    code: PRIVILEGE_CREATE_PROJECT,
-    label: "Criar projeto",
-    description: "Permite cadastrar novos projetos financeiros.",
-  },
-];
+export {
+  PRIVILEGE_CASH_CLOSING,
+  PRIVILEGE_SALE_CONFIRM,
+  PRIVILEGE_PAYMENT_CONFIRM,
+  PRIVILEGE_FULL_HISTORY,
+  PRIVILEGE_CREATE_PROJECT,
+  PRIVILEGE_CATALOG,
+};
 
-export function hasPrivilege(user, code) {
+export function hasPrivilege(user, code, options = {}) {
+  const { projectId, sectorId = "financeiro" } = options;
   if (!user) return false;
   if (user.level === "admin") return true;
   if (user.level === "ilustrativo") return false;
+  if (projectId != null) {
+    if (!hasProjectSector(user, projectId, sectorId)) return false;
+    return projectSectorPrivileges(user, projectId, sectorId).includes(code);
+  }
   return (user.privileges || []).includes(code);
 }
 
-export function canCashClosing(user) {
-  return hasPrivilege(user, PRIVILEGE_CASH_CLOSING);
+export function canCashClosing(user, projectId) {
+  return hasPrivilege(user, PRIVILEGE_CASH_CLOSING, { projectId, sectorId: "financeiro" });
 }
 
-export function canConfirmSale(user) {
-  return hasPrivilege(user, PRIVILEGE_SALE_CONFIRM);
+export function canConfirmSale(user, projectId) {
+  return hasPrivilege(user, PRIVILEGE_SALE_CONFIRM, { projectId, sectorId: "financeiro" });
 }
 
-export function canFullHistory(user) {
-  return hasPrivilege(user, PRIVILEGE_FULL_HISTORY);
+export function canFullHistory(user, projectId) {
+  return hasPrivilege(user, PRIVILEGE_FULL_HISTORY, { projectId, sectorId: "financeiro" });
 }
 
 export function canCreateProject(user) {
   return hasPrivilege(user, PRIVILEGE_CREATE_PROJECT);
+}
+
+export function canConfirmPayment(user, projectId) {
+  return hasPrivilege(user, PRIVILEGE_PAYMENT_CONFIRM, { projectId, sectorId: "financeiro" });
+}
+
+export function getAssignment(user, projectId) {
+  return getProjectAssignment(user, projectId);
 }

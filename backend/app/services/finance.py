@@ -136,10 +136,29 @@ def _ensure_finance_demo_users(db: Session) -> None:
 
 
 def seed_database(db: Session) -> None:
+    from app.services.sector_registry import seed_sector_registry
+
+    seed_sector_registry(db)
+    db.commit()
+    from app.services.project_sectors import SECTOR_MARKETING, apply_sectors_to_settings, build_new_project_settings
+
     agencia = db.query(Project).filter(Project.slug == "agencia").first()
-    if agencia and agencia.description != "Projeto Restrito":
-        agencia.description = "Projeto Restrito"
-        db.commit()
+    if agencia:
+        changed = False
+        if agencia.description != "Projeto Restrito":
+            agencia.description = "Projeto Restrito"
+            changed = True
+        proj_settings = dict(agencia.settings or {})
+        merged_sectors = apply_sectors_to_settings(
+            proj_settings,
+            [SECTOR_MARKETING],
+            origin_sector=SECTOR_MARKETING,
+        )
+        if merged_sectors != agencia.settings:
+            agencia.settings = merged_sectors
+            changed = True
+        if changed:
+            db.commit()
 
     _ensure_finance_demo_users(db)
 
@@ -190,10 +209,7 @@ def seed_database(db: Session) -> None:
         name="AGENCIA",
         slug="agencia",
         description="Projeto Restrito",
-        settings={
-            "doc_types": DEFAULT_DOC_TYPES,
-            "expense_types": DEFAULT_EXPENSE_TYPES,
-        },
+        settings=build_new_project_settings([SECTOR_MARKETING], origin_sector=SECTOR_MARKETING),
     )
     db.add(project)
     db.flush()

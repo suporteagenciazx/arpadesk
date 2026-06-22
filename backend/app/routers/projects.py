@@ -33,6 +33,8 @@ from app.schemas import (
 from app.services.finance import compute_summary, compute_report, slugify
 from app.services.cache import cached_json, cache_delete_prefix
 from app.services.project_finance_config import get_finance_config, save_finance_config
+from app.services.project_sectors import build_new_project_settings, sectors_public
+from app.services.sector_registry import load_sector_registry
 from app.services.active_period import active_period_to_dict
 from app.auth_utils import verify_password
 
@@ -74,11 +76,16 @@ def create_project(data: ProjectCreate, user: User = Depends(get_current_user), 
     slug = slugify(data.name)
     if db.query(Project).filter(Project.slug == slug).first():
         raise HTTPException(400, "Projeto já existe")
+    registry = load_sector_registry(db)
     project = Project(
         name=data.name.upper(),
         slug=slug,
         description=data.description,
-        settings={"doc_types": DEFAULT_DOC_TYPES, "expense_types": DEFAULT_EXPENSE_TYPES},
+        settings=build_new_project_settings(
+            data.sectors,
+            origin_sector=data.origin_sector or "financeiro",
+            registry=registry,
+        ),
     )
     db.add(project)
     db.flush()

@@ -6,7 +6,9 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import ProjectMember, User, UserLevel
 from app.services.cash_closing import get_user_privilege_codes
-from app.schemas import LoginRequest, ProjectBrief, TokenResponse, UserOut
+from app.services.member_access import assignment_out_from_member, derive_sector_ids_from_memberships
+from app.services.user_sectors import get_user_sector_ids
+from app.schemas import LoginRequest, TokenResponse, UserOut
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -21,9 +23,10 @@ def user_to_out(db: Session, user: User) -> UserOut:
     projects = []
     for m in memberships:
         if m.project:
-            projects.append(
-                ProjectBrief(id=m.project.id, name=m.project.name, commission_percent=float(m.commission_percent or 0))
-            )
+            projects.append(assignment_out_from_member(m))
+    sector_ids = derive_sector_ids_from_memberships(db, user.id)
+    if not sector_ids:
+        sector_ids = get_user_sector_ids(db, user.id)
     return UserOut(
         id=user.id,
         name=user.name,
@@ -36,6 +39,7 @@ def user_to_out(db: Session, user: User) -> UserOut:
         is_active=user.is_active,
         projects=projects,
         privileges=get_user_privilege_codes(db, user.id),
+        sector_ids=sector_ids,
     )
 
 

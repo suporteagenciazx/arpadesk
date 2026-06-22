@@ -4,6 +4,7 @@ from app.models import UserLevel
 
 PRIVILEGE_CASH_CLOSING = "cash_closing"
 PRIVILEGE_SALE_CONFIRM = "sale_confirm"
+PRIVILEGE_PAYMENT_CONFIRM = "payment_confirm"
 PRIVILEGE_FULL_HISTORY = "full_history"
 PRIVILEGE_CREATE_PROJECT = "create_project"
 
@@ -19,6 +20,11 @@ PRIVILEGE_CATALOG: list[dict[str, str]] = [
         "description": "Permite alterar o status das vendas (ex.: confirmar como OK).",
     },
     {
+        "code": PRIVILEGE_PAYMENT_CONFIRM,
+        "label": "Autorização de confirmação de pagamento",
+        "description": "Permite confirmar pagamentos de comissões na aba Pagamentos.",
+    },
+    {
         "code": PRIVILEGE_FULL_HISTORY,
         "label": "Histórico completo",
         "description": "Permite filtrar outros períodos, usar datas personalizadas e navegar entre semanas.",
@@ -31,6 +37,18 @@ PRIVILEGE_CATALOG: list[dict[str, str]] = [
 ]
 
 PRIVILEGE_CODES = {p["code"] for p in PRIVILEGE_CATALOG}
+
+PRIVILEGES_BY_SECTOR: dict[str, list[str]] = {
+    "financeiro": list(PRIVILEGE_CODES),
+    "marketing": [],
+    "operacional": [],
+    "logistica": [],
+    "suporte": [],
+}
+
+
+def privileges_for_sector(sector_id: str) -> list[str]:
+    return list(PRIVILEGES_BY_SECTOR.get(sector_id, []))
 
 
 def privileges_for_level(level: UserLevel) -> list[str]:

@@ -40,10 +40,16 @@ def require_admin_finance(user: User = Depends(get_current_user)) -> User:
     return user
 
 
-def require_payments_access(user: User = Depends(get_current_user)) -> User:
+def require_payments_access(
+    project_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
     from app.permissions import can_access_payments
 
-    if not can_access_payments(user):
+    if not user_has_project_access(db, user, project_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Sem acesso")
+    if not can_access_payments(db, user, project_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Sem acesso a pagamentos")
     return user
 
